@@ -5,7 +5,7 @@ import type { ExtensionMessage, ExtensionResponse, AgentAction } from '@/types';
 // Listen for messages from the extension
 chrome.runtime.onMessage.addListener((
   message: ExtensionMessage,
-  sender,
+  _sender,
   sendResponse: (response: ExtensionResponse) => void
 ) => {
   handleMessage(message).then(sendResponse);

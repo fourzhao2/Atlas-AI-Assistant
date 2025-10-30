@@ -9,7 +9,13 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async chat(messages: AIMessage[], onChunk: (chunk: string) => void): Promise<string> {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const baseUrl = this.config.baseUrl || 'https://api.openai.com';
+    const apiUrl = `${baseUrl}/v1/chat/completions`;
+    
+    console.log('[OpenAI] 发送请求到:', apiUrl);
+    console.log('[OpenAI] 使用模型:', this.config.model || 'gpt-4-turbo-preview');
+    
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -22,9 +28,20 @@ export class OpenAIProvider implements AIProvider {
       }),
     });
 
+    console.log('[OpenAI] 响应状态:', response.status, response.statusText);
+
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error?.message || 'OpenAI API request failed');
+      let errorMessage = `API 请求失败 (${response.status})`;
+      try {
+        const error = await response.json();
+        errorMessage = error.error?.message || error.message || errorMessage;
+        console.error('[OpenAI] 错误详情:', error);
+      } catch (e) {
+        const text = await response.text();
+        console.error('[OpenAI] 错误响应:', text);
+        errorMessage = text || errorMessage;
+      }
+      throw new Error(errorMessage);
     }
 
     const reader = response.body?.getReader();
@@ -65,7 +82,8 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async chatWithTools(messages: AIMessage[], tools: AITool[]): Promise<AIToolResponse> {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const baseUrl = this.config.baseUrl || 'https://api.openai.com';
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -15,7 +15,6 @@ export const App: React.FC = () => {
     isLoading,
     currentPage,
     preferences,
-    theme,
     addMessage,
     setMessages,
     setLoading,
@@ -30,9 +29,12 @@ export const App: React.FC = () => {
   // Initialize
   useEffect(() => {
     const init = async () => {
+      console.log('[SidePanel] 开始初始化...');
+      
       // Load preferences
       const prefs = await storage.getPreferences();
       setPreferences(prefs);
+      console.log('[SidePanel] 用户偏好:', prefs);
       
       // Set theme
       const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -43,15 +45,26 @@ export const App: React.FC = () => {
       // Load chat history
       const history = await storage.getChatHistory(50);
       setMessages(history);
+      console.log('[SidePanel] 加载历史消息:', history.length, '条');
       
       // Initialize AI service
+      console.log('[SidePanel] 初始化 AI 服务...');
       await aiService.initialize();
       
       // Get current page content
+      console.log('[SidePanel] 获取页面内容...');
       const response = await getPageContent();
+      console.log('[SidePanel] 页面内容响应:', response);
+      
       if (response.success && response.data) {
         setCurrentPage(response.data as PageContent);
+        console.log('[SidePanel] 当前页面标题:', (response.data as PageContent).title);
+        console.log('[SidePanel] 页面内容长度:', (response.data as PageContent).content?.length);
+      } else {
+        console.error('[SidePanel] 获取页面内容失败:', response.error);
       }
+      
+      console.log('[SidePanel] 初始化完成');
     };
 
     init();
@@ -63,6 +76,8 @@ export const App: React.FC = () => {
   }, [messages, streamingMessage]);
 
   const handleSendMessage = async (content: string) => {
+    console.log('[Chat] 发送消息:', content);
+    
     // Add user message
     const userMessage: AIMessage = {
       role: 'user',
@@ -77,6 +92,15 @@ export const App: React.FC = () => {
     setStreamingMessage('');
 
     try {
+      console.log('[Chat] 开始准备消息...');
+      
+      // 重新获取当前页面内容
+      const pageResponse = await getPageContent();
+      if (pageResponse.success && pageResponse.data) {
+        setCurrentPage(pageResponse.data as PageContent);
+        console.log('[Chat] 已更新页面内容');
+      }
+      
       // Prepare messages with memory
       let messagesToSend = [...messages, userMessage];
       
@@ -86,24 +110,53 @@ export const App: React.FC = () => {
       
       // Add page context if available
       if (currentPage) {
-        const systemMessage: AIMessage = {
-          role: 'system',
-          content: `Current page context:\nTitle: ${currentPage.title}\nURL: ${currentPage.url}\nExcerpt: ${currentPage.excerpt}`,
+        // 将页面内容直接添加到用户最后一条消息中
+        const lastMessage = messagesToSend[messagesToSend.length - 1];
+        const pageInfo = `
+
+【当前网页信息】
+标题：${currentPage.title}
+网址：${currentPage.url}
+
+【网页内容】
+${currentPage.content.substring(0, 4000)}
+
+---
+用户问题：${lastMessage.content}`;
+
+        // 修改最后一条消息，添加页面内容
+        messagesToSend[messagesToSend.length - 1] = {
+          ...lastMessage,
+          content: pageInfo
         };
-        messagesToSend = [systemMessage, ...messagesToSend];
+        
+        console.log('[Chat] 已添加页面上下文，内容长度:', currentPage.content.length);
+      } else {
+        console.log('[Chat] 警告：当前页面内容为空');
       }
 
-      // Stream response
+      // Stream response - 流式显示，实时更新
+      console.log('[Chat] 调用 AI 服务，消息数量:', messagesToSend.length);
+      
       let fullResponse = '';
+      let isFirstChunk = true;
       await aiService.chat(
         messagesToSend,
         (chunk) => {
+          // 收到第一个响应块时立即隐藏加载动画
+          if (isFirstChunk) {
+            console.log('[Chat] 收到第一个响应块');
+            setLoading(false);
+            isFirstChunk = false;
+          }
           fullResponse += chunk;
           setStreamingMessage(fullResponse);
         }
       );
+      
+      console.log('[Chat] 响应完成，总长度:', fullResponse.length);
 
-      // Add assistant message
+      // 流式完成，保存最终消息
       const assistantMessage: AIMessage = {
         role: 'assistant',
         content: fullResponse,
@@ -113,16 +166,24 @@ export const App: React.FC = () => {
       addMessage(assistantMessage);
       await storage.addChatMessage(assistantMessage);
       setStreamingMessage('');
+      setLoading(false);
     } catch (error) {
-      console.error('Chat error:', error);
+      console.error('[Chat] 错误:', error);
+      
+      let errorMsg = error instanceof Error ? error.message : '发送消息失败';
+      
+      // 检查是否是网络错误
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
+        errorMsg = '网络连接失败，请检查：\n1. 是否能访问 API 地址\n2. 网络是否正常\n3. API 地址是否正确';
+      }
+      
       const errorMessage: AIMessage = {
         role: 'assistant',
-        content: `错误: ${error instanceof Error ? error.message : '发送消息失败'}`,
+        content: `❌ 错误: ${errorMsg}\n\n💡 请检查：\n1. 扩展设置中是否已配置 API Key\n2. API Key 是否正确\n3. 自定义 API 地址是否正确\n4. 打开浏览器控制台查看详细日志`,
         timestamp: Date.now(),
       };
       addMessage(errorMessage);
       setStreamingMessage('');
-    } finally {
       setLoading(false);
     }
   };
@@ -193,7 +254,8 @@ export const App: React.FC = () => {
               role: 'assistant', 
               content: streamingMessage,
               timestamp: Date.now(),
-            }} 
+            }}
+            isStreaming={true}
           />
         )}
         

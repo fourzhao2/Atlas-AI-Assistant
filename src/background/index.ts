@@ -1,5 +1,4 @@
 import { aiService } from '@/services/ai-service';
-import { storage } from '@/services/storage';
 import { summarizerService } from '@/services/summarizer';
 import { historyAnalyzer } from './history-analyzer';
 import type { ExtensionMessage, ExtensionResponse, PageContent } from '@/types';

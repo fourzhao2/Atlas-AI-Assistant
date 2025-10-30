@@ -304,6 +304,25 @@ export const App: React.FC = () => {
                         placeholder={getDefaultModel(provider)}
                         className="input-field"
                       />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        留空使用默认模型：{getDefaultModel(provider)}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                        自定义 API 地址（可选）
+                      </label>
+                      <input
+                        type="text"
+                        value={tempConfig.baseUrl || ''}
+                        onChange={(e) => setTempConfig({ ...tempConfig, baseUrl: e.target.value })}
+                        placeholder={provider === 'openai' ? 'https://api.openai.com' : ''}
+                        className="input-field"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        用于兼容 OpenAI API 的第三方服务（如 New API）
+                      </p>
                     </div>
 
                     <div className="flex gap-2">

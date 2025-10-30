@@ -1,4 +1,4 @@
-import type { AgentAction, AITool, AIToolResponse } from '@/types';
+import type { AgentAction, AITool } from '@/types';
 import { aiService } from './ai-service';
 
 class ActionParser {
@@ -100,7 +100,7 @@ ${context ? `\n\nPage context:\n${context}` : ''}`,
       const response = await aiService.chatWithTools(messages, this.tools, 'openai');
       
       if (response.toolCalls && response.toolCalls.length > 0) {
-        return response.toolCalls.map(call => this.toolCallToAction(call));
+        return response.toolCalls.map((call: { name: string; arguments: Record<string, unknown> }) => this.toolCallToAction(call));
       }
 
       // If no tool calls, try to parse from text response

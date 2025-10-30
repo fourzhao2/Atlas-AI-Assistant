@@ -4,9 +4,10 @@ import { marked } from 'marked';
 
 interface ChatMessageProps {
   message: AIMessage;
+  isStreaming?: boolean;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
+export const ChatMessage: React.FC<ChatMessageProps> = ({ message, isStreaming = false }) => {
   const isUser = message.role === 'user';
   
   const renderContent = () => {
@@ -32,7 +33,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 animate-fade-in`}>
       <div className={`max-w-[85%] ${isUser ? 'message-user' : 'message-assistant'}`}>
         {renderContent()}
-        {message.timestamp && (
+        {isStreaming && (
+          <span className="inline-block ml-1 w-2 h-4 bg-current animate-pulse">▋</span>
+        )}
+        {message.timestamp && !isStreaming && (
           <div className="text-xs opacity-50 mt-2">
             {new Date(message.timestamp).toLocaleTimeString('zh-CN', {
               hour: '2-digit',

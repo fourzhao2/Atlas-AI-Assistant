@@ -46,8 +46,11 @@ npm run build
 - **OpenAI**: https://platform.openai.com/api-keys
 - **Anthropic**: https://console.anthropic.com/
 - **Gemini**: https://makersuite.google.com/app/apikey
+- **New API** (兼容 OpenAI 格式): https://new-api.koyeb.app
 
 在扩展设置页面配置至少一个 API Key。
+
+💡 **使用 New API？** 查看详细配置指南：[NEW_API_CONFIG.md](NEW_API_CONFIG.md)
 
 ## 📖 文档
 

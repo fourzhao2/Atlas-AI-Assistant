@@ -176,7 +176,7 @@ export class PageAgent {
     return elements;
   }
 
-  private generateSelector(element: Element, index: number, type: string): string {
+  private generateSelector(element: Element, index: number, _type: string): string {
     // Try to get a unique selector
     if (element.id) {
       return `#${element.id}`;

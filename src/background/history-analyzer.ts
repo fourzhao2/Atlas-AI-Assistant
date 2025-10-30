@@ -89,7 +89,7 @@ class HistoryAnalyzer {
   }
 
   private async getAIInsights(
-    historyItems: chrome.history.HistoryItem[],
+    _historyItems: chrome.history.HistoryItem[],
     topDomains: [string, { count: number; titles: string[] }][]
   ): Promise<HistoryInsight[]> {
     try {

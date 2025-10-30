@@ -8,9 +8,18 @@ class AIService {
   private providers: Map<AIProviderType, AIProvider> = new Map();
 
   async initialize() {
+    console.log('[AIService] 开始初始化...');
     const configs = await storage.getAllProviderConfigs();
+    console.log('[AIService] 配置:', {
+      openai: configs.openai ? '已配置' : '未配置',
+      anthropic: configs.anthropic ? '已配置' : '未配置',
+      gemini: configs.gemini ? '已配置' : '未配置',
+    });
 
     if (configs.openai) {
+      console.log('[AIService] 初始化 OpenAI provider');
+      console.log('[AIService] OpenAI baseUrl:', configs.openai.baseUrl);
+      console.log('[AIService] OpenAI model:', configs.openai.model);
       this.providers.set('openai', new OpenAIProvider(configs.openai));
     }
     if (configs.anthropic) {
@@ -19,6 +28,8 @@ class AIService {
     if (configs.gemini) {
       this.providers.set('gemini', new GeminiProvider(configs.gemini));
     }
+    
+    console.log('[AIService] 初始化完成，可用提供商:', Array.from(this.providers.keys()));
   }
 
   async refreshProvider(providerType: AIProviderType) {
@@ -45,19 +56,23 @@ class AIService {
     if (!providerType) {
       const preferences = await storage.getPreferences();
       providerType = preferences.defaultProvider;
+      console.log('[AIService] 使用默认提供商:', providerType);
     }
 
     let provider = this.providers.get(providerType);
     
     if (!provider) {
+      console.log('[AIService] 提供商未初始化，尝试刷新:', providerType);
       await this.refreshProvider(providerType);
       provider = this.providers.get(providerType);
     }
 
     if (!provider) {
-      throw new Error(`Provider ${providerType} not configured. Please add API key in settings.`);
+      console.error('[AIService] 提供商配置失败:', providerType);
+      throw new Error(`❌ ${providerType} 未配置\n\n请到扩展设置中配置 API Key`);
     }
 
+    console.log('[AIService] 获取到提供商:', providerType);
     return provider;
   }
 

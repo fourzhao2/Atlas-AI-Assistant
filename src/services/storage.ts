@@ -1,4 +1,4 @@
-import type { StorageData, AIProviderType, AIProviderConfig, UserPreference, Memory, AIMessage, PageSummary, HistoryInsight } from '@/types';
+import type { AIProviderType, AIProviderConfig, UserPreference, Memory, AIMessage, PageSummary, HistoryInsight } from '@/types';
 
 const DEFAULT_PREFERENCES: UserPreference = {
   defaultProvider: 'openai',
