@@ -1,0 +1,20 @@
+# 图标文件夹
+
+请在此文件夹放置以下尺寸的图标：
+
+- icon16.png (16x16)
+- icon32.png (32x32)
+- icon48.png (48x48)
+- icon128.png (128x128)
+
+您可以使用在线工具生成图标，或使用设计软件（如 Figma, Photoshop）创建。
+
+推荐的图标设计：
+- 简洁的 "A" 字母
+- 蓝色主色调 (#0ea5e9)
+- 圆角方形背景
+
+在线图标生成工具：
+- https://www.favicon-generator.org/
+- https://realfavicongenerator.net/
+
