@@ -1,4 +1,4 @@
-import type { AIProviderType, AIProviderConfig, UserPreference, Memory, AIMessage, PageSummary, HistoryInsight } from '@/types';
+import type { AIProviderType, AIProviderConfig, UserPreference, Memory, AIMessage, PageSummary, HistoryInsight, Conversation } from '@/types';
 
 const DEFAULT_PREFERENCES: UserPreference = {
   defaultProvider: 'openai',
@@ -121,6 +121,77 @@ class StorageService {
 
   async clearInsights(): Promise<void> {
     await chrome.storage.local.set({ insights: [] });
+  }
+
+  // Conversations
+  async getConversations(): Promise<Conversation[]> {
+    const result = await chrome.storage.local.get(['conversations']);
+    return result.conversations || [];
+  }
+
+  async getConversation(id: string): Promise<Conversation | null> {
+    const conversations = await this.getConversations();
+    return conversations.find(c => c.id === id) || null;
+  }
+
+  async createConversation(title?: string, pageUrl?: string): Promise<Conversation> {
+    const conversations = await this.getConversations();
+    const newConversation: Conversation = {
+      id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      title: title || '新对话',
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      pageUrl,
+    };
+    
+    conversations.push(newConversation);
+    // Keep only last 100 conversations
+    const trimmed = conversations.slice(-100);
+    await chrome.storage.local.set({ conversations: trimmed });
+    
+    return newConversation;
+  }
+
+  async updateConversation(id: string, updates: Partial<Conversation>): Promise<void> {
+    const conversations = await this.getConversations();
+    const index = conversations.findIndex(c => c.id === id);
+    
+    if (index !== -1) {
+      conversations[index] = {
+        ...conversations[index],
+        ...updates,
+        updatedAt: Date.now(),
+      };
+      await chrome.storage.local.set({ conversations });
+    }
+  }
+
+  async deleteConversation(id: string): Promise<void> {
+    const conversations = await this.getConversations();
+    const filtered = conversations.filter(c => c.id !== id);
+    await chrome.storage.local.set({ conversations: filtered });
+  }
+
+  async getCurrentConversationId(): Promise<string | null> {
+    const result = await chrome.storage.local.get(['currentConversationId']);
+    return result.currentConversationId || null;
+  }
+
+  async setCurrentConversationId(id: string | null): Promise<void> {
+    await chrome.storage.local.set({ currentConversationId: id });
+  }
+
+  async addMessageToConversation(conversationId: string, message: AIMessage): Promise<void> {
+    const conversation = await this.getConversation(conversationId);
+    if (conversation) {
+      conversation.messages.push(message);
+      // Keep only last 500 messages per conversation
+      if (conversation.messages.length > 500) {
+        conversation.messages = conversation.messages.slice(-500);
+      }
+      await this.updateConversation(conversationId, { messages: conversation.messages });
+    }
   }
 
   // Utility

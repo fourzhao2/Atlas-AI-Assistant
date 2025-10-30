@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AIMessage, AIProviderType, UserPreference, PageContent, Memory, HistoryInsight } from '@/types';
+import type { AIMessage, AIProviderType, UserPreference, PageContent, Memory, HistoryInsight, Conversation } from '@/types';
 
 interface AppState {
   // Chat state
@@ -22,6 +22,11 @@ interface AppState {
   // Theme
   theme: 'light' | 'dark';
   
+  // Conversations
+  conversations: Conversation[];
+  currentConversationId: string | null;
+  sidebarOpen: boolean;
+  
   // Actions
   addMessage: (message: AIMessage) => void;
   setMessages: (messages: AIMessage[]) => void;
@@ -33,6 +38,12 @@ interface AppState {
   setMemories: (memories: Memory[]) => void;
   setInsights: (insights: HistoryInsight[]) => void;
   setTheme: (theme: 'light' | 'dark') => void;
+  
+  // Conversation Actions
+  setConversations: (conversations: Conversation[]) => void;
+  setCurrentConversationId: (id: string | null) => void;
+  updateConversation: (id: string, updates: Partial<Conversation>) => void;
+  setSidebarOpen: (open: boolean) => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -50,6 +61,9 @@ export const useStore = create<AppState>((set) => ({
   memories: [],
   insights: [],
   theme: 'light',
+  conversations: [],
+  currentConversationId: null,
+  sidebarOpen: false,
   
   addMessage: (message) => set((state) => ({
     messages: [...state.messages, message],
@@ -72,5 +86,17 @@ export const useStore = create<AppState>((set) => ({
   setInsights: (insights) => set({ insights }),
   
   setTheme: (theme) => set({ theme }),
+  
+  setConversations: (conversations) => set({ conversations }),
+  
+  setCurrentConversationId: (currentConversationId) => set({ currentConversationId }),
+  
+  updateConversation: (id, updates) => set((state) => ({
+    conversations: state.conversations.map(conv =>
+      conv.id === id ? { ...conv, ...updates, updatedAt: Date.now() } : conv
+    ),
+  })),
+  
+  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
 }));
 

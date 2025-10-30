@@ -1,26 +1,34 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { storage } from '@/services/storage';
 import { aiService } from '@/services/ai-service';
 import { memoryService } from '@/services/memory';
+import { conversationService } from '@/services/conversation';
 import { getPageContent } from '@/utils/messaging';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { QuickActions } from './components/QuickActions';
+import { Sidebar } from './components/Sidebar';
 import type { AIMessage, PageContent } from '@/types';
 
-export const App: React.FC = () => {
+export const App = () => {
   const {
     messages,
     isLoading,
     currentPage,
     preferences,
+    conversations,
+    currentConversationId,
+    sidebarOpen,
     addMessage,
     setMessages,
     setLoading,
     setCurrentPage,
     setPreferences,
     setTheme,
+    setConversations,
+    setCurrentConversationId,
+    setSidebarOpen,
   } = useStore();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -42,10 +50,26 @@ export const App: React.FC = () => {
       setTheme(activeTheme);
       document.documentElement.classList.toggle('dark', activeTheme === 'dark');
       
-      // Load chat history
-      const history = await storage.getChatHistory(50);
-      setMessages(history);
-      console.log('[SidePanel] 加载历史消息:', history.length, '条');
+      // Migrate old chat history and load conversations
+      console.log('[SidePanel] 迁移和加载对话...');
+      await conversationService.migrateOldChatHistory();
+      
+      const allConversations = await conversationService.getConversations();
+      setConversations(allConversations);
+      console.log('[SidePanel] 加载对话:', allConversations.length, '个');
+      
+      const currentId = await storage.getCurrentConversationId();
+      setCurrentConversationId(currentId);
+      console.log('[SidePanel] 当前对话 ID:', currentId);
+      
+      // Load current conversation messages
+      if (currentId) {
+        const currentConv = await storage.getConversation(currentId);
+        if (currentConv) {
+          setMessages(currentConv.messages);
+          console.log('[SidePanel] 加载当前对话消息:', currentConv.messages.length, '条');
+        }
+      }
       
       // Initialize AI service
       console.log('[SidePanel] 初始化 AI 服务...');
@@ -78,6 +102,11 @@ export const App: React.FC = () => {
   const handleSendMessage = async (content: string) => {
     console.log('[Chat] 发送消息:', content);
     
+    if (!currentConversationId) {
+      console.error('[Chat] 没有当前对话');
+      return;
+    }
+    
     // Add user message
     const userMessage: AIMessage = {
       role: 'user',
@@ -86,7 +115,14 @@ export const App: React.FC = () => {
     };
     
     addMessage(userMessage);
-    await storage.addChatMessage(userMessage);
+    await conversationService.addMessage(currentConversationId, userMessage);
+    
+    // Auto-generate title after first message
+    await conversationService.autoGenerateTitle(currentConversationId);
+    
+    // Refresh conversations in store
+    const updatedConversations = await conversationService.getConversations();
+    setConversations(updatedConversations);
     
     setLoading(true);
     setStreamingMessage('');
@@ -164,7 +200,15 @@ ${currentPage.content.substring(0, 4000)}
       };
       
       addMessage(assistantMessage);
-      await storage.addChatMessage(assistantMessage);
+      
+      if (currentConversationId) {
+        await conversationService.addMessage(currentConversationId, assistantMessage);
+        
+        // Refresh conversations in store
+        const updatedConversations = await conversationService.getConversations();
+        setConversations(updatedConversations);
+      }
+      
       setStreamingMessage('');
       setLoading(false);
     } catch (error) {
@@ -211,75 +255,159 @@ ${currentPage.content.substring(0, 4000)}
     }
   };
 
+  // Handle conversation actions
+  const handleNewConversation = async () => {
+    const pageResponse = await getPageContent();
+    const pageUrl = pageResponse.success && pageResponse.data 
+      ? (pageResponse.data as PageContent).url 
+      : undefined;
+    
+    const newConv = await conversationService.createConversation(undefined, pageUrl);
+    
+    const updatedConversations = await conversationService.getConversations();
+    setConversations(updatedConversations);
+    setCurrentConversationId(newConv.id);
+    setMessages([]);
+    
+    console.log('[Chat] 创建新对话:', newConv.id);
+  };
+
+  const handleSelectConversation = async (id: string) => {
+    await conversationService.switchConversation(id);
+    setCurrentConversationId(id);
+    
+    const conv = await storage.getConversation(id);
+    if (conv) {
+      setMessages(conv.messages);
+      console.log('[Chat] 切换到对话:', id, '消息数:', conv.messages.length);
+    }
+    
+    setSidebarOpen(false);
+  };
+
+  const handleDeleteConversation = async (id: string) => {
+    await conversationService.deleteConversation(id);
+    
+    const updatedConversations = await conversationService.getConversations();
+    setConversations(updatedConversations);
+    
+    const newCurrentId = await storage.getCurrentConversationId();
+    setCurrentConversationId(newCurrentId);
+    
+    if (newCurrentId) {
+      const conv = await storage.getConversation(newCurrentId);
+      if (conv) {
+        setMessages(conv.messages);
+      }
+    } else {
+      setMessages([]);
+    }
+    
+    console.log('[Chat] 删除对话:', id);
+  };
+
+  const handleRenameConversation = async (id: string, title: string) => {
+    await conversationService.updateTitle(id, title);
+    
+    const updatedConversations = await conversationService.getConversations();
+    setConversations(updatedConversations);
+    
+    console.log('[Chat] 重命名对话:', id, title);
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-white dark:bg-gray-900">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">
-            A
+    <div className="flex h-screen bg-white dark:bg-gray-900">
+      {/* Sidebar */}
+      <Sidebar
+        isOpen={sidebarOpen}
+        conversations={conversations}
+        currentConversationId={currentConversationId}
+        onClose={() => setSidebarOpen(false)}
+        onNewConversation={handleNewConversation}
+        onSelectConversation={handleSelectConversation}
+        onDeleteConversation={handleDeleteConversation}
+        onRenameConversation={handleRenameConversation}
+      />
+      
+      {/* Main Content */}
+      <div className="flex flex-col flex-1 min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="切换侧边栏"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center text-white font-bold">
+              A
+            </div>
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Atlas AI Assistant
+            </h1>
           </div>
-          <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-            Atlas AI Assistant
-          </h1>
+          {currentPage && (
+            <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
+              {currentPage.title}
+            </div>
+          )}
         </div>
-        {currentPage && (
-          <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
-            {currentPage.title}
-          </div>
-        )}
-      </div>
 
-      {/* Quick Actions */}
-      <QuickActions onAction={handleQuickAction} disabled={isLoading} />
+        {/* Quick Actions */}
+        <QuickActions onAction={handleQuickAction} disabled={isLoading} />
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-        {messages.length === 0 && !streamingMessage && (
-          <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-400">
-            <div className="text-4xl mb-4">👋</div>
-            <h2 className="text-xl font-semibold mb-2">欢迎使用 Atlas</h2>
-            <p className="text-sm">我可以帮您总结网页、回答问题、翻译内容等。</p>
-            <p className="text-sm mt-2">使用快捷操作或直接输入消息开始对话。</p>
-          </div>
-        )}
-        
-        {messages.map((message, index) => (
-          <ChatMessage key={index} message={message} />
-        ))}
-        
-        {streamingMessage && (
-          <ChatMessage 
-            message={{ 
-              role: 'assistant', 
-              content: streamingMessage,
-              timestamp: Date.now(),
-            }}
-            isStreaming={true}
-          />
-        )}
-        
-        {isLoading && !streamingMessage && (
-          <div className="flex justify-start mb-4">
-            <div className="message-assistant">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
+          {messages.length === 0 && !streamingMessage && (
+            <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-400">
+              <div className="text-4xl mb-4">👋</div>
+              <h2 className="text-xl font-semibold mb-2">欢迎使用 Atlas</h2>
+              <p className="text-sm">我可以帮您总结网页、回答问题、翻译内容等。</p>
+              <p className="text-sm mt-2">使用快捷操作或直接输入消息开始对话。</p>
+            </div>
+          )}
+          
+          {messages.map((message, index) => (
+            <ChatMessage key={index} message={message} />
+          ))}
+          
+          {streamingMessage && (
+            <ChatMessage 
+              message={{ 
+                role: 'assistant', 
+                content: streamingMessage,
+                timestamp: Date.now(),
+              }}
+              isStreaming={true}
+            />
+          )}
+          
+          {isLoading && !streamingMessage && (
+            <div className="flex justify-start mb-4">
+              <div className="message-assistant">
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                  <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse" style={{ animationDelay: '0.4s' }}></div>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-        
-        <div ref={messagesEndRef} />
-      </div>
+          )}
+          
+          <div ref={messagesEndRef} />
+        </div>
 
-      {/* Input */}
-      <ChatInput 
-        onSend={handleSendMessage} 
-        disabled={isLoading}
-        placeholder={isLoading ? '正在思考...' : '输入消息...'}
-      />
+        {/* Input */}
+        <ChatInput 
+          onSend={handleSendMessage} 
+          disabled={isLoading}
+          placeholder={isLoading ? '正在思考...' : '输入消息...'}
+        />
+      </div>
     </div>
   );
 };

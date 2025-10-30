@@ -101,14 +101,26 @@ export interface HistoryInsight {
   timestamp: number;
 }
 
+// Conversation Types
+export interface Conversation {
+  id: string;
+  title: string;
+  messages: AIMessage[];
+  createdAt: number;
+  updatedAt: number;
+  pageUrl?: string;
+}
+
 // Storage Types
 export interface StorageData {
   providers: Record<AIProviderType, AIProviderConfig>;
   preferences: UserPreference;
   memories: Memory[];
-  chatHistory: AIMessage[];
+  chatHistory: AIMessage[]; // 废弃，保留兼容性
   summaries: PageSummary[];
   insights: HistoryInsight[];
+  conversations: Conversation[];
+  currentConversationId: string | null;
 }
 
 // Message Types for Chrome Extension Communication
