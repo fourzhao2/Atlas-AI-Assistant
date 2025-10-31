@@ -7,6 +7,7 @@ import { conversationService } from '@/services/conversation';
 import { agentExecutor } from '@/services/agent-executor';
 import { agentTools } from '@/services/agent-tools';
 import { getPageContent } from '@/utils/messaging';
+import { measurePerf } from '@/utils/performance';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { QuickActions } from './components/QuickActions';
@@ -42,66 +43,102 @@ export const App = () => {
   // Initialize
   useEffect(() => {
     const init = async () => {
-      console.log('[SidePanel] 开始初始化...');
+      const perfStart = performance.now();
+      console.log('[SidePanel] 🚀 开始并行初始化...');
       
-      // Load preferences
-      const prefs = await storage.getPreferences();
-      
-      // 🔧 自动启用 Agent 模式（如果未启用）
-      if (!prefs.agentMode) {
-        console.log('[SidePanel] ⚙️ 自动启用 Agent 模式');
-        prefs.agentMode = true;
-        await storage.setPreferences(prefs);
-      }
-      
-      setPreferences(prefs);
-      console.log('[SidePanel] 用户偏好:', prefs);
-      
-      // Set theme
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      const activeTheme = prefs.theme === 'system' ? systemTheme : prefs.theme;
-      setTheme(activeTheme);
-      document.documentElement.classList.toggle('dark', activeTheme === 'dark');
-      
-      // Migrate old chat history and load conversations
-      console.log('[SidePanel] 迁移和加载对话...');
-      await conversationService.migrateOldChatHistory();
-      
-      const allConversations = await conversationService.getConversations();
-      setConversations(allConversations);
-      console.log('[SidePanel] 加载对话:', allConversations.length, '个');
-      
-      const currentId = await storage.getCurrentConversationId();
-      setCurrentConversationId(currentId);
-      console.log('[SidePanel] 当前对话 ID:', currentId);
-      
-      // Load current conversation messages
-      if (currentId) {
-        const currentConv = await storage.getConversation(currentId);
-        if (currentConv) {
-          setMessages(currentConv.messages);
-          console.log('[SidePanel] 加载当前对话消息:', currentConv.messages.length, '条');
+      try {
+        // 阶段1: 并行加载核心数据（最快，立即需要的）
+        const [prefs, _] = await Promise.all([
+          storage.getPreferences(),
+          conversationService.migrateOldChatHistory(),
+        ]);
+        
+        // 应用偏好设置
+        let finalPrefs = prefs;
+        if (!prefs.agentMode) {
+          console.log('[SidePanel] ⚙️ 自动启用 Agent 模式');
+          finalPrefs = { ...prefs, agentMode: true };
+          // 异步保存，不阻塞
+          storage.setPreferences(finalPrefs).catch(console.error);
         }
+        
+        setPreferences(finalPrefs);
+        
+        // 立即设置主题（不需要等待）
+        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        const activeTheme = finalPrefs.theme === 'system' ? systemTheme : finalPrefs.theme;
+        setTheme(activeTheme);
+        document.documentElement.classList.toggle('dark', activeTheme === 'dark');
+        
+        // 阶段2: 并行加载对话数据和AI服务
+        const [allConversations, currentId, __] = await Promise.all([
+          conversationService.getConversations(),
+          storage.getCurrentConversationId(),
+          aiService.initialize(),
+        ]);
+        
+        setConversations(allConversations);
+        setCurrentConversationId(currentId);
+        console.log('[SidePanel] 加载对话:', allConversations.length, '个');
+        
+        // 阶段3: 加载当前对话消息（如果有）
+        let currentMessages: AIMessage[] = [];
+        if (currentId) {
+          const currentConv = await storage.getConversation(currentId);
+          if (currentConv) {
+            currentMessages = currentConv.messages;
+            setMessages(currentConv.messages);
+            console.log('[SidePanel] 加载消息:', currentConv.messages.length, '条');
+          }
+        }
+        
+        // 阶段4: 并行检查配置和获取页面内容（允许失败）
+        const [configs, pageResponse] = await Promise.all([
+          storage.getAllProviderConfigs(),
+          getPageContent().catch((err: Error) => {
+            console.warn('[SidePanel] 页面内容获取失败（非致命）:', err);
+            return { success: false as const, error: err.message };
+          }),
+        ]);
+        
+        // 检查是否需要显示欢迎消息
+        const hasAnyProvider = configs.openai || configs.anthropic || configs.gemini;
+        if (!hasAnyProvider && currentMessages.length === 0) {
+          const welcomeMessage: AIMessage = {
+            role: 'assistant',
+            content: `👋 欢迎使用 Atlas AI 助手！\n\n` +
+                     `要开始使用，请先配置 AI 提供商：\n\n` +
+                     `📝 配置步骤：\n` +
+                     `1. 点击右上角的扩展图标\n` +
+                     `2. 选择"设置"或"选项"\n` +
+                     `3. 在"AI 提供商"标签中配置您的 API Key\n\n` +
+                     `💡 支持的提供商：\n` +
+                     `• OpenAI GPT (推荐)\n` +
+                     `• Anthropic Claude\n` +
+                     `• Google Gemini\n\n` +
+                     `⚡ 配置完成后，就可以开始使用了！`,
+            timestamp: Date.now(),
+          };
+          addMessage(welcomeMessage);
+        }
+        
+        // 更新页面内容（非阻塞）
+        if ('data' in pageResponse && pageResponse.success && pageResponse.data) {
+          setCurrentPage(pageResponse.data as PageContent);
+          console.log('[SidePanel] 页面标题:', (pageResponse.data as PageContent).title);
+        }
+        
+        const perfEnd = performance.now();
+        console.log(`[SidePanel] ✅ 初始化完成，耗时: ${(perfEnd - perfStart).toFixed(2)}ms`);
+      } catch (error) {
+        console.error('[SidePanel] ❌ 初始化失败:', error);
+        // 显示错误提示给用户
+        addMessage({
+          role: 'assistant',
+          content: '⚠️ 初始化出现问题，请刷新页面重试。',
+          timestamp: Date.now(),
+        });
       }
-      
-      // Initialize AI service
-      console.log('[SidePanel] 初始化 AI 服务...');
-      await aiService.initialize();
-      
-      // Get current page content
-      console.log('[SidePanel] 获取页面内容...');
-      const response = await getPageContent();
-      console.log('[SidePanel] 页面内容响应:', response);
-      
-      if (response.success && response.data) {
-        setCurrentPage(response.data as PageContent);
-        console.log('[SidePanel] 当前页面标题:', (response.data as PageContent).title);
-        console.log('[SidePanel] 页面内容长度:', (response.data as PageContent).content?.length);
-      } else {
-        console.error('[SidePanel] 获取页面内容失败:', response.error);
-      }
-      
-      console.log('[SidePanel] 初始化完成');
     };
 
     init();
@@ -113,10 +150,40 @@ export const App = () => {
   }, [messages, streamingMessage]);
 
   const handleSendMessage = async (content: string) => {
+    const endMeasure = measurePerf('发送消息');
     console.log('[Chat] 发送消息:', content);
     
+    // 检查是否有当前对话
     if (!currentConversationId) {
       console.error('[Chat] 没有当前对话');
+      const errorMessage: AIMessage = {
+        role: 'assistant',
+        content: '❌ 系统错误：没有活动对话。请刷新页面重试。',
+        timestamp: Date.now(),
+      };
+      addMessage(errorMessage);
+      return;
+    }
+    
+    // 检查是否配置了API Key
+    const configs = await storage.getAllProviderConfigs();
+    const defaultConfig = configs[preferences.defaultProvider];
+    
+    if (!defaultConfig || !defaultConfig.apiKey) {
+      const errorMessage: AIMessage = {
+        role: 'assistant',
+        content: `❌ 请先配置 ${preferences.defaultProvider.toUpperCase()} API Key\n\n` +
+                 `📝 配置步骤：\n` +
+                 `1. 点击扩展图标，选择"设置"\n` +
+                 `2. 进入"AI 提供商"标签\n` +
+                 `3. 配置您的 API Key\n\n` +
+                 `💡 如果您没有 API Key，可以到官网申请：\n` +
+                 `- OpenAI: https://platform.openai.com/\n` +
+                 `- Anthropic: https://console.anthropic.com/\n` +
+                 `- Google AI: https://ai.google.dev/`,
+        timestamp: Date.now(),
+      };
+      addMessage(errorMessage);
       return;
     }
     
@@ -128,14 +195,32 @@ export const App = () => {
     };
     
     addMessage(userMessage);
-    await conversationService.addMessage(currentConversationId, userMessage);
     
-    // Auto-generate title after first message
-    await conversationService.autoGenerateTitle(currentConversationId);
-    
-    // Refresh conversations in store
-    const updatedConversations = await conversationService.getConversations();
-    setConversations(updatedConversations);
+    // 批量更新：合并多个操作，减少storage写入
+    const conversation = await storage.getConversation(currentConversationId);
+    if (conversation) {
+      // 自动生成标题（如果需要）
+      let newTitle = conversation.title;
+      if (conversation.title === '新对话' && conversation.messages.length === 0) {
+        const titleText = userMessage.content.substring(0, 30);
+        newTitle = titleText.length < userMessage.content.length ? titleText + '...' : titleText;
+      }
+      
+      // 一次性更新对话（减少storage写入）
+      await storage.updateConversation(currentConversationId, {
+        messages: [...conversation.messages, userMessage],
+        title: newTitle,
+        updatedAt: Date.now(),
+      });
+      
+      // 更新本地conversations状态
+      const updatedConvs = conversations.map(c => 
+        c.id === currentConversationId 
+          ? { ...c, title: newTitle, updatedAt: Date.now() }
+          : c
+      );
+      setConversations(updatedConvs);
+    }
     
     setLoading(true);
     setStreamingMessage('');
@@ -319,20 +404,62 @@ export const App = () => {
       console.error('[Chat] 错误:', error);
       
       let errorMsg = error instanceof Error ? error.message : '发送消息失败';
+      let troubleshootSteps = '';
       
-      // 检查是否是网络错误
+      // 根据错误类型提供针对性的解决方案
       if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
-        errorMsg = '网络连接失败，请检查：\n1. 是否能访问 API 地址\n2. 网络是否正常\n3. API 地址是否正确';
+        troubleshootSteps = `🔍 网络连接问题，可能的原因：\n\n` +
+                           `1. 无法访问 API 服务器\n` +
+                           `   • 检查网络连接是否正常\n` +
+                           `   • 如果使用自定义 API，确认地址正确\n` +
+                           `   • 可能需要使用代理或VPN\n\n` +
+                           `2. CORS 或防火墙问题\n` +
+                           `   • 某些网络环境可能阻止请求\n` +
+                           `   • 尝试更换网络环境\n\n` +
+                           `3. API 服务暂时不可用\n` +
+                           `   • 稍后再试`;
+      } else if (errorMsg.includes('401') || errorMsg.includes('Unauthorized') || errorMsg.includes('API key')) {
+        troubleshootSteps = `🔑 API Key 问题：\n\n` +
+                           `1. API Key 可能无效或已过期\n` +
+                           `2. 请检查设置中的 API Key 是否正确\n` +
+                           `3. 确认 API Key 有足够的配额\n\n` +
+                           `📝 如何解决：\n` +
+                           `• 进入"设置" → "AI 提供商"\n` +
+                           `• 重新配置正确的 API Key`;
+      } else if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+        troubleshootSteps = `⏱️ 请求频率限制：\n\n` +
+                           `API 调用过于频繁，请稍后再试。\n\n` +
+                           `💡 建议：\n` +
+                           `• 等待 1-2 分钟后重试\n` +
+                           `• 考虑升级 API 套餐以获得更高配额`;
+      } else if (errorMsg.includes('未配置')) {
+        troubleshootSteps = `📋 配置检查清单：\n\n` +
+                           `✓ 是否已配置 AI 提供商？\n` +
+                           `✓ API Key 是否填写正确？\n` +
+                           `✓ 默认提供商是否选择正确？\n\n` +
+                           `📝 配置步骤：\n` +
+                           `1. 点击扩展图标 → 设置\n` +
+                           `2. 选择"AI 提供商"标签\n` +
+                           `3. 配置您的 API Key`;
+      } else {
+        troubleshootSteps = `💡 常规排查步骤：\n\n` +
+                           `1. 检查 API Key 配置是否正确\n` +
+                           `2. 确认网络连接正常\n` +
+                           `3. 检查自定义 API 地址（如有）\n` +
+                           `4. 查看浏览器控制台的详细错误信息\n` +
+                           `5. 尝试切换到其他 AI 提供商`;
       }
       
       const errorMessage: AIMessage = {
         role: 'assistant',
-        content: `❌ 错误: ${errorMsg}\n\n💡 请检查：\n1. 扩展设置中是否已配置 API Key\n2. API Key 是否正确\n3. 自定义 API 地址是否正确\n4. 打开浏览器控制台查看详细日志`,
+        content: `❌ 发送失败\n\n**错误信息**：${errorMsg}\n\n${troubleshootSteps}`,
         timestamp: Date.now(),
       };
       addMessage(errorMessage);
       setStreamingMessage('');
       setLoading(false);
+    } finally {
+      endMeasure();
     }
   };
 

@@ -141,20 +141,40 @@ Format your response as JSON array:
     return [];
   }
 
+  private intervalId: number | null = null;
+
   async scheduleAnalysis() {
     // Run analysis once per day
     const ANALYSIS_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 
     const analyze = async () => {
-      const insights = await this.analyzeHistory();
-      console.log(`Generated ${insights.length} insights`);
+      try {
+        const insights = await this.analyzeHistory();
+        console.log(`Generated ${insights.length} insights`);
+      } catch (error) {
+        console.error('[HistoryAnalyzer] Analysis failed:', error);
+      }
     };
 
     // Run immediately
-    analyze();
+    analyze().catch(error => {
+      console.error('[HistoryAnalyzer] Initial analysis failed:', error);
+    });
+
+    // Clear existing interval if any
+    if (this.intervalId !== null) {
+      clearInterval(this.intervalId);
+    }
 
     // Schedule periodic analysis
-    setInterval(analyze, ANALYSIS_INTERVAL);
+    this.intervalId = setInterval(analyze, ANALYSIS_INTERVAL) as unknown as number;
+  }
+
+  stopSchedule() {
+    if (this.intervalId !== null) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
   }
 }
 

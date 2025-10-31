@@ -219,6 +219,53 @@ ${JSON.stringify(domSummary, null, 2)}
       console.log(`[AgentExecutor] 执行步骤 ${i + 1}/${actions.length}:`, action);
 
       try {
+      // 特殊处理 navigate 操作 - 直接使用 Chrome API
+      if (action.type === 'navigate' && action.url) {
+        try {
+          // 验证 URL 格式
+          if (!action.url.startsWith('http://') && !action.url.startsWith('https://')) {
+            throw new Error('URL 必须以 http:// 或 https:// 开头');
+          }
+          
+          await chrome.tabs.update(tab.id, { url: action.url });
+          
+          const stepResult: AgentExecutionStep = {
+            action,
+            result: `导航到: ${action.url}`,
+            success: true,
+            timestamp: Date.now()
+          };
+          
+          steps.push(stepResult.result);
+          callbacks?.onStep?.(stepResult);
+          
+          // 导航后等待页面加载
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        } catch (navError) {
+          const errorMsg = navError instanceof Error ? navError.message : '导航失败';
+          console.error('[AgentExecutor] 导航失败:', errorMsg);
+          const stepResult: AgentExecutionStep = {
+            action,
+            result: errorMsg,
+            success: false,
+            timestamp: Date.now()
+          };
+          
+          callbacks?.onStep?.(stepResult);
+          
+          const result: ExecutionResult = {
+            success: false,
+            error: errorMsg,
+            steps
+          };
+          
+          callbacks?.onComplete?.(result);
+          return result;
+        }
+      }
+        
+        // 其他操作通过 content script 执行
         const response = await sendMessageToTab<string>(tab.id, {
           type: 'EXECUTE_AGENT_ACTION',
           payload: action

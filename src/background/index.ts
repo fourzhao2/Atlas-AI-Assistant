@@ -6,15 +6,25 @@ import type { ExtensionMessage, ExtensionResponse, PageContent } from '@/types';
 console.log('Atlas extension background service worker started');
 
 // Initialize services
-aiService.initialize().catch(console.error);
+aiService.initialize().catch(error => {
+  console.error('[Background] AI Service initialization failed:', error);
+});
 
 // Schedule history analysis
-historyAnalyzer.scheduleAnalysis();
+try {
+  historyAnalyzer.scheduleAnalysis();
+} catch (error) {
+  console.error('[Background] History analyzer scheduling failed:', error);
+}
 
 // Handle extension icon click - open side panel
 chrome.action.onClicked.addListener(async (tab) => {
-  if (tab.id) {
-    await chrome.sidePanel.open({ tabId: tab.id });
+  try {
+    if (tab.id) {
+      await chrome.sidePanel.open({ tabId: tab.id });
+    }
+  } catch (error) {
+    console.error('[Background] Failed to open side panel:', error);
   }
 });
 
@@ -24,7 +34,15 @@ chrome.runtime.onMessage.addListener((
   sender,
   sendResponse: (response: ExtensionResponse) => void
 ) => {
-  handleBackgroundMessage(message, sender).then(sendResponse);
+  handleBackgroundMessage(message, sender)
+    .then(sendResponse)
+    .catch(error => {
+      console.error('[Background] Message handler error:', error);
+      sendResponse({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    });
   return true; // Keep message channel open
 });
 
@@ -107,41 +125,54 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (!tab?.id) return;
+  try {
+    if (!tab?.id) return;
 
-  switch (info.menuItemId) {
-    case 'atlas-summarize':
-      // Open side panel and trigger summarization
-      await chrome.sidePanel.open({ tabId: tab.id });
-      // Send message to side panel
-      chrome.runtime.sendMessage({
-        type: 'TRIGGER_SUMMARIZE',
-        payload: { tabId: tab.id },
-      });
-      break;
+    switch (info.menuItemId) {
+      case 'atlas-summarize':
+        // Open side panel and trigger summarization
+        await chrome.sidePanel.open({ tabId: tab.id });
+        // Send message to side panel
+        chrome.runtime.sendMessage({
+          type: 'TRIGGER_SUMMARIZE',
+          payload: { tabId: tab.id },
+        });
+        break;
 
-    case 'atlas-explain':
-    case 'atlas-translate':
-      await chrome.sidePanel.open({ tabId: tab.id });
-      chrome.runtime.sendMessage({
-        type: 'TRIGGER_ACTION',
-        payload: {
-          action: info.menuItemId.replace('atlas-', ''),
-          text: info.selectionText,
-        },
-      });
-      break;
+      case 'atlas-explain':
+      case 'atlas-translate':
+        await chrome.sidePanel.open({ tabId: tab.id });
+        chrome.runtime.sendMessage({
+          type: 'TRIGGER_ACTION',
+          payload: {
+            action: info.menuItemId.replace('atlas-', ''),
+            text: info.selectionText,
+          },
+        });
+        break;
+    }
+  } catch (error) {
+    console.error('[Background] Context menu action failed:', error);
   }
 });
 
 // Keep service worker alive
 const keepAlive = () => {
   setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => {
-      // Simple call to prevent service worker from sleeping
-    });
+    try {
+      chrome.runtime.getPlatformInfo(() => {
+        // Simple call to prevent service worker from sleeping
+      });
+    } catch (error) {
+      console.error('[Background] Keep alive failed:', error);
+    }
   }, 20000); // Every 20 seconds
 };
 
-keepAlive();
+// Start keep alive mechanism
+try {
+  keepAlive();
+} catch (error) {
+  console.error('[Background] Failed to start keep alive:', error);
+}
 

@@ -69,7 +69,7 @@ class StorageService {
     const memories = await this.getMemories();
     const newMemory: Memory = {
       ...memory,
-      id: `memory_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `memory_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       timestamp: Date.now(),
     };
     memories.push(newMemory);
@@ -111,7 +111,7 @@ class StorageService {
     const insights = await this.getInsights();
     const newInsight: HistoryInsight = {
       ...insight,
-      id: `insight_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `insight_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       timestamp: Date.now(),
     };
     insights.push(newInsight);
@@ -137,7 +137,7 @@ class StorageService {
   async createConversation(title?: string, pageUrl?: string): Promise<Conversation> {
     const conversations = await this.getConversations();
     const newConversation: Conversation = {
-      id: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `conv_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
       title: title || '新对话',
       messages: [],
       createdAt: Date.now(),

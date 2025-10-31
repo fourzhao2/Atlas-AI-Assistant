@@ -109,28 +109,48 @@ export class ContentExtractor {
 
   // ========== Agent-related methods ==========
 
-  extractInteractiveDOM(): InteractiveElement[] {
+  // DOM提取缓存
+  private domCache: {
+    elements: InteractiveElement[];
+    timestamp: number;
+    url: string;
+  } | null = null;
+
+  extractInteractiveDOM(maxElements = 100): InteractiveElement[] {
+    const perfStart = performance.now();
+    
+    // 检查缓存（5秒内有效）
+    const currentUrl = window.location.href;
+    if (this.domCache && 
+        this.domCache.url === currentUrl && 
+        Date.now() - this.domCache.timestamp < 5000) {
+      console.log(`[Extractor] ✅ 使用缓存，${this.domCache.elements.length}个元素`);
+      return this.domCache.elements;
+    }
+    
     const elements: InteractiveElement[] = [];
     
-    // 提取所有可交互元素
-    const selectors = [
-      'input:not([type="hidden"])', 
-      'textarea', 
-      'select', 
-      'button', 
-      'a[href]', 
-      '[role="button"]', 
-      '[role="link"]',
-      '[onclick]',
-      '[type="submit"]',
-      '[contenteditable="true"]'
-    ];
+    // 优化的选择器：更具体，减少查询范围
+    const INTERACTIVE_SELECTOR = 
+      'button:not([disabled]):not([hidden]), ' +
+      'a[href]:not([hidden]), ' +
+      'input:not([type="hidden"]):not([disabled]), ' +
+      'textarea:not([disabled]), ' +
+      'select:not([disabled]), ' +
+      '[role="button"]:not([disabled]), ' +
+      '[type="submit"]:not([disabled])';
     
-    const allElements = document.querySelectorAll(selectors.join(','));
+    // 使用单次查询获取所有元素
+    const allElements = document.querySelectorAll(INTERACTIVE_SELECTOR);
     
-    allElements.forEach((el, index) => {
-      // 跳过不可见元素
-      if (!this.isVisible(el)) return;
+    // 限制处理数量，提高性能
+    const elementsToProcess = Math.min(allElements.length, maxElements);
+    
+    for (let index = 0; index < elementsToProcess; index++) {
+      const el = allElements[index];
+      
+      // 快速可见性检查（优化版）
+      if (!this.isVisibleFast(el as HTMLElement)) continue;
       
       const element = el as HTMLElement;
       const rect = element.getBoundingClientRect();
@@ -153,25 +173,35 @@ export class ContentExtractor {
         isVisible: true,
         context: this.getElementContext(element)
       });
-    });
+    }
     
-    console.log(`[Extractor] 提取到 ${elements.length} 个可交互元素`);
+    // 更新缓存
+    this.domCache = {
+      elements,
+      timestamp: Date.now(),
+      url: currentUrl
+    };
+    
+    const perfEnd = performance.now();
+    console.log(`[Extractor] ✅ 提取${elements.length}个元素，耗时: ${(perfEnd - perfStart).toFixed(2)}ms`);
+    
     return elements;
   }
-
-  private isVisible(element: Element): boolean {
-    const el = element as HTMLElement;
-    if (!el.offsetParent && el.offsetWidth === 0 && el.offsetHeight === 0) {
-      return false;
-    }
+  
+  // 优化的可见性检查（更快）
+  private isVisibleFast(element: HTMLElement): boolean {
+    // 快速检查：offsetParent为null通常表示不可见
+    if (!element.offsetParent) return false;
     
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
-      return false;
-    }
+    // 检查元素大小
+    const rect = element.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return false;
     
     return true;
   }
+
+  // 原有的详细检查方法已被 isVisibleFast 替代以提升性能
+  // 保留此注释以供参考
 
   private generateUniqueId(element: HTMLElement, index: number): string {
     if (element.id) return `id-${element.id}`;

@@ -8,7 +8,15 @@ chrome.runtime.onMessage.addListener((
   _sender,
   sendResponse: (response: ExtensionResponse) => void
 ) => {
-  handleMessage(message).then(sendResponse);
+  handleMessage(message)
+    .then(sendResponse)
+    .catch(error => {
+      console.error('[Content] Message handler error:', error);
+      sendResponse({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    });
   return true; // Keep the message channel open for async response
 });
 
@@ -52,28 +60,42 @@ async function handleMessage(message: ExtensionMessage): Promise<ExtensionRespon
 }
 
 // Add a visual indicator when the extension is active
-const indicator = document.createElement('div');
-indicator.id = 'atlas-extension-indicator';
-indicator.style.cssText = `
-  position: fixed;
-  top: 10px;
-  right: 10px;
-  width: 8px;
-  height: 8px;
-  background: #10b981;
-  border-radius: 50%;
-  z-index: 999999;
-  opacity: 0;
-  transition: opacity 0.3s;
-  pointer-events: none;
-`;
-document.body.appendChild(indicator);
+function addIndicator() {
+  const indicator = document.createElement('div');
+  indicator.id = 'atlas-extension-indicator';
+  indicator.style.cssText = `
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: 8px;
+    height: 8px;
+    background: #10b981;
+    border-radius: 50%;
+    z-index: 999999;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  `;
+  
+  // 确保body已加载
+  if (document.body) {
+    document.body.appendChild(indicator);
+    
+    // Show indicator briefly when content script loads
+    indicator.style.opacity = '1';
+    setTimeout(() => {
+      indicator.style.opacity = '0';
+    }, 2000);
+  }
+}
 
-// Show indicator briefly when content script loads
-indicator.style.opacity = '1';
-setTimeout(() => {
-  indicator.style.opacity = '0';
-}, 2000);
+// 等待DOM加载完成后再添加指示器
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', addIndicator);
+} else {
+  // DOM已经加载完成
+  addIndicator();
+}
 
 console.log('Atlas extension content script loaded');
 

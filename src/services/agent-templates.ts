@@ -11,7 +11,13 @@ export const agentTemplates: Record<string, AgentTemplate> = {
   search: {
     patterns: ['搜索', 'search', '查找', '找', '搜一下', '搜一搜'],
     handler: async (query: string, context) => {
-      const currentUrl = context?.url || window.location.href;
+      const currentUrl = context?.url || '';
+      if (!currentUrl) {
+        // 如果没有context，默认使用Google搜索
+        return [
+          { type: 'navigate', url: `https://www.google.com/search?q=${encodeURIComponent(query)}` }
+        ];
+      }
       const hostname = new URL(currentUrl).hostname;
       
       // 如果已经在搜索引擎页面
@@ -43,7 +49,15 @@ export const agentTemplates: Record<string, AgentTemplate> = {
   playVideo: {
     patterns: ['播放', 'play', '看视频', '观看', '打开视频'],
     handler: async (query: string, context) => {
-      const currentUrl = context?.url || window.location.href;
+      const currentUrl = context?.url || '';
+      if (!currentUrl) {
+        // 如果没有context，默认导航到B站搜索
+        return [
+          { type: 'navigate', url: `https://www.bilibili.com/search?keyword=${encodeURIComponent(query)}` },
+          { type: 'wait', selector: '.video-item', timeout: 5000 },
+          { type: 'click', selector: '.video-item:first-child a' }
+        ];
+      }
       const hostname = new URL(currentUrl).hostname;
       
       // B站
@@ -144,14 +158,14 @@ export const agentTemplates: Record<string, AgentTemplate> = {
     patterns: ['滚动', 'scroll', '向下', '向上', '到底部', '到顶部'],
     handler: async (query: string) => {
       if (query.includes('底部') || query.includes('bottom') || query.includes('向下')) {
-        return [{ type: 'scroll', y: document.body.scrollHeight }];
+        return [{ type: 'scroll', y: 99999 }]; // 使用一个很大的数字代替 document.body.scrollHeight
       }
       
       if (query.includes('顶部') || query.includes('top') || query.includes('向上')) {
         return [{ type: 'scroll', y: 0 }];
       }
       
-      return [{ type: 'scroll', y: window.scrollY + 500 }];
+      return [{ type: 'scroll', y: 500 }]; // 固定滚动距离，而不是依赖 window.scrollY
     }
   }
 };

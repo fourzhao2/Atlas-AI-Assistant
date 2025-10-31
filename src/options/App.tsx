@@ -89,6 +89,23 @@ export const App: React.FC = () => {
         ...providers,
         [provider]: null,
       });
+      
+      // 如果删除的是当前默认提供商，自动切换到其他可用的
+      if (preferences.defaultProvider === provider) {
+        const otherProviders: AIProviderType[] = ['openai', 'anthropic', 'gemini'];
+        const availableProvider = otherProviders.find(p => 
+          p !== provider && providers[p] !== null
+        );
+        
+        if (availableProvider) {
+          const newPrefs = { ...preferences, defaultProvider: availableProvider };
+          setPreferences(newPrefs);
+          await storage.setPreferences(newPrefs);
+          alert(`已自动切换默认提供商到 ${availableProvider.toUpperCase()}`);
+        } else {
+          alert(`⚠️ 警告：您已删除所有 AI 提供商配置。请至少配置一个提供商才能使用 AI 功能。`);
+        }
+      }
 
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -96,8 +113,37 @@ export const App: React.FC = () => {
   };
 
   const handleClearAllData = async () => {
-    if (confirm('确定要清除所有数据吗？此操作不可恢复！')) {
+    const confirmed = confirm(
+      '⚠️ 确定要清除所有数据吗？\n\n' +
+      '这将删除：\n' +
+      '• 所有对话历史\n' +
+      '• 所有记忆和洞察\n' +
+      '• 所有页面总结\n\n' +
+      '⚠️ AI 提供商配置会被保留\n\n' +
+      '此操作不可恢复！'
+    );
+    
+    if (confirmed) {
+      // 保存当前的Provider配置
+      const providerConfigs = await storage.getAllProviderConfigs();
+      const currentPrefs = await storage.getPreferences();
+      
+      // 清除所有数据
       await storage.clearAllData();
+      
+      // 恢复Provider配置和偏好设置
+      if (providerConfigs.openai) {
+        await storage.setProviderConfig('openai', providerConfigs.openai);
+      }
+      if (providerConfigs.anthropic) {
+        await storage.setProviderConfig('anthropic', providerConfigs.anthropic);
+      }
+      if (providerConfigs.gemini) {
+        await storage.setProviderConfig('gemini', providerConfigs.gemini);
+      }
+      await storage.setPreferences(currentPrefs);
+      
+      alert('✅ 数据已清除（API 配置已保留）');
       window.location.reload();
     }
   };
@@ -194,10 +240,21 @@ export const App: React.FC = () => {
                     onChange={(e) => setPreferences({ ...preferences, defaultProvider: e.target.value as AIProviderType })}
                     className="input-field"
                   >
-                    <option value="openai">OpenAI GPT</option>
-                    <option value="anthropic">Anthropic Claude</option>
-                    <option value="gemini">Google Gemini</option>
+                    <option value="openai" disabled={!providers.openai}>
+                      OpenAI GPT {!providers.openai && '(未配置)'}
+                    </option>
+                    <option value="anthropic" disabled={!providers.anthropic}>
+                      Anthropic Claude {!providers.anthropic && '(未配置)'}
+                    </option>
+                    <option value="gemini" disabled={!providers.gemini}>
+                      Google Gemini {!providers.gemini && '(未配置)'}
+                    </option>
                   </select>
+                  {!providers[preferences.defaultProvider] && (
+                    <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                      ⚠️ 当前默认提供商未配置，请先配置 API Key
+                    </p>
+                  )}
                 </div>
 
                 <div>

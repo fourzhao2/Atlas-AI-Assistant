@@ -8,47 +8,69 @@ class AIService {
   private providers: Map<AIProviderType, AIProvider> = new Map();
 
   async initialize() {
-    console.log('[AIService] 开始初始化...');
-    const configs = await storage.getAllProviderConfigs();
-    console.log('[AIService] 配置:', {
-      openai: configs.openai ? '已配置' : '未配置',
-      anthropic: configs.anthropic ? '已配置' : '未配置',
-      gemini: configs.gemini ? '已配置' : '未配置',
-    });
+    try {
+      console.log('[AIService] 开始初始化...');
+      const configs = await storage.getAllProviderConfigs();
+      console.log('[AIService] 配置:', {
+        openai: configs.openai ? '已配置' : '未配置',
+        anthropic: configs.anthropic ? '已配置' : '未配置',
+        gemini: configs.gemini ? '已配置' : '未配置',
+      });
 
-    if (configs.openai) {
-      console.log('[AIService] 初始化 OpenAI provider');
-      console.log('[AIService] OpenAI baseUrl:', configs.openai.baseUrl);
-      console.log('[AIService] OpenAI model:', configs.openai.model);
-      this.providers.set('openai', new OpenAIProvider(configs.openai));
+      if (configs.openai) {
+        try {
+          console.log('[AIService] 初始化 OpenAI provider');
+          console.log('[AIService] OpenAI baseUrl:', configs.openai.baseUrl);
+          console.log('[AIService] OpenAI model:', configs.openai.model);
+          this.providers.set('openai', new OpenAIProvider(configs.openai));
+        } catch (error) {
+          console.error('[AIService] OpenAI provider 初始化失败:', error);
+        }
+      }
+      if (configs.anthropic) {
+        try {
+          this.providers.set('anthropic', new AnthropicProvider(configs.anthropic));
+        } catch (error) {
+          console.error('[AIService] Anthropic provider 初始化失败:', error);
+        }
+      }
+      if (configs.gemini) {
+        try {
+          this.providers.set('gemini', new GeminiProvider(configs.gemini));
+        } catch (error) {
+          console.error('[AIService] Gemini provider 初始化失败:', error);
+        }
+      }
+      
+      console.log('[AIService] 初始化完成，可用提供商:', Array.from(this.providers.keys()));
+    } catch (error) {
+      console.error('[AIService] 初始化失败:', error);
+      throw error;
     }
-    if (configs.anthropic) {
-      this.providers.set('anthropic', new AnthropicProvider(configs.anthropic));
-    }
-    if (configs.gemini) {
-      this.providers.set('gemini', new GeminiProvider(configs.gemini));
-    }
-    
-    console.log('[AIService] 初始化完成，可用提供商:', Array.from(this.providers.keys()));
   }
 
   async refreshProvider(providerType: AIProviderType) {
-    const config = await storage.getProviderConfig(providerType);
-    if (!config) {
-      this.providers.delete(providerType);
-      return;
-    }
+    try {
+      const config = await storage.getProviderConfig(providerType);
+      if (!config) {
+        this.providers.delete(providerType);
+        return;
+      }
 
-    switch (providerType) {
-      case 'openai':
-        this.providers.set('openai', new OpenAIProvider(config));
-        break;
-      case 'anthropic':
-        this.providers.set('anthropic', new AnthropicProvider(config));
-        break;
-      case 'gemini':
-        this.providers.set('gemini', new GeminiProvider(config));
-        break;
+      switch (providerType) {
+        case 'openai':
+          this.providers.set('openai', new OpenAIProvider(config));
+          break;
+        case 'anthropic':
+          this.providers.set('anthropic', new AnthropicProvider(config));
+          break;
+        case 'gemini':
+          this.providers.set('gemini', new GeminiProvider(config));
+          break;
+      }
+    } catch (error) {
+      console.error(`[AIService] 刷新 ${providerType} provider 失败:`, error);
+      throw error;
     }
   }
 

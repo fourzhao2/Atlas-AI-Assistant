@@ -78,6 +78,16 @@ class ConversationService {
     console.log('[ConversationService] 检查旧数据迁移...');
     
     const conversations = await storage.getConversations();
+    const currentId = await storage.getCurrentConversationId();
+    
+    // 如果有对话但没有当前对话ID，设置第一个为当前对话
+    if (conversations.length > 0 && !currentId) {
+      console.log('[ConversationService] 设置第一个对话为当前对话');
+      await storage.setCurrentConversationId(conversations[0].id);
+      return;
+    }
+    
+    // 如果有对话数据，跳过迁移
     if (conversations.length > 0) {
       console.log('[ConversationService] 已有对话数据，跳过迁移');
       return;

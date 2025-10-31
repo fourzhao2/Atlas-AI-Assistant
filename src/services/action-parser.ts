@@ -97,7 +97,8 @@ ${context ? `\n\nPage context:\n${context}` : ''}`,
     ];
 
     try {
-      const response = await aiService.chatWithTools(messages, this.tools, 'openai');
+      // chatWithTools 只接受两个参数：messages 和 tools，不接受 providerType
+      const response = await aiService.chatWithTools(messages, this.tools);
       
       if (response.toolCalls && response.toolCalls.length > 0) {
         return response.toolCalls.map((call: { name: string; arguments: Record<string, unknown> }) => this.toolCallToAction(call));
