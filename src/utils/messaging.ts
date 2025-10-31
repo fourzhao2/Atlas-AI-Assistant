@@ -100,3 +100,33 @@ export async function getPageContext(): Promise<ExtensionResponse> {
   return sendMessageToTab(tab.id, { type: 'GET_PAGE_CONTEXT' });
 }
 
+export async function getInteractiveDOM(): Promise<ExtensionResponse> {
+  const tab = await getCurrentTab();
+  if (!tab?.id) {
+    return { success: false, error: 'No active tab' };
+  }
+
+  return sendMessageToTab(tab.id, { type: 'GET_INTERACTIVE_DOM' });
+}
+
+export async function executeAgentAction(action: unknown): Promise<ExtensionResponse> {
+  const tab = await getCurrentTab();
+  if (!tab?.id) {
+    return { success: false, error: 'No active tab' };
+  }
+
+  return sendMessageToTab(tab.id, { 
+    type: 'EXECUTE_AGENT_ACTION', 
+    payload: action 
+  });
+}
+
+export async function stopAgentExecution(): Promise<ExtensionResponse> {
+  const tab = await getCurrentTab();
+  if (!tab?.id) {
+    return { success: false, error: 'No active tab' };
+  }
+
+  return sendMessageToTab(tab.id, { type: 'STOP_AGENT_EXECUTION' });
+}
+

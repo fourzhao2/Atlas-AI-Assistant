@@ -23,6 +23,11 @@ async function handleMessage(message: ExtensionMessage): Promise<ExtensionRespon
         const context = contentExtractor.getPageContext();
         return { success: true, data: context };
 
+      case 'GET_INTERACTIVE_DOM':
+        console.log('[Content] 提取可交互 DOM');
+        const interactiveElements = contentExtractor.extractInteractiveDOM();
+        return { success: true, data: interactiveElements };
+
       case 'EXECUTE_AGENT_ACTION':
         if (!message.payload) {
           return { success: false, error: 'No action provided' };
@@ -30,6 +35,10 @@ async function handleMessage(message: ExtensionMessage): Promise<ExtensionRespon
         const action = message.payload as AgentAction;
         const result = await pageAgent.executeAction(action);
         return { success: true, data: result };
+
+      case 'STOP_AGENT_EXECUTION':
+        console.log('[Content] 停止 Agent 执行');
+        return { success: true, data: 'Agent execution stopped' };
 
       default:
         return { success: false, error: `Unknown message type: ${message.type}` };

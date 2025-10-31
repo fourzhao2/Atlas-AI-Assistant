@@ -4,7 +4,7 @@ const DEFAULT_PREFERENCES: UserPreference = {
   defaultProvider: 'openai',
   theme: 'system',
   autoSummarize: false,
-  agentMode: false,
+  agentMode: true,  // 默认启用 Agent 模式
   memoryEnabled: true,
 };
 

@@ -13,7 +13,7 @@ export class OpenAIProvider implements AIProvider {
     const apiUrl = `${baseUrl}/v1/chat/completions`;
     
     console.log('[OpenAI] 发送请求到:', apiUrl);
-    console.log('[OpenAI] 使用模型:', this.config.model || 'gpt-4-turbo-preview');
+    console.log('[OpenAI] 使用模型:', this.config.model || 'gpt-4o-mini');
     
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -22,7 +22,7 @@ export class OpenAIProvider implements AIProvider {
         'Authorization': `Bearer ${this.config.apiKey}`,
       },
       body: JSON.stringify({
-        model: this.config.model || 'gpt-4-turbo-preview',
+        model: this.config.model || 'gpt-4o-mini',
         messages: messages.map(m => ({ role: m.role, content: m.content })),
         stream: true,
       }),
@@ -90,7 +90,7 @@ export class OpenAIProvider implements AIProvider {
         'Authorization': `Bearer ${this.config.apiKey}`,
       },
       body: JSON.stringify({
-        model: this.config.model || 'gpt-4-turbo-preview',
+        model: this.config.model || 'gpt-4o-mini',
         messages: messages.map(m => ({ role: m.role, content: m.content })),
         tools: tools.map(t => ({
           type: 'function',

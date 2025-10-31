@@ -75,12 +75,16 @@ export interface UserPreference {
 
 // Agent Action Types
 export interface AgentAction {
-  type: 'click' | 'fill' | 'scroll' | 'navigate' | 'extract';
+  type: 'click' | 'fill' | 'scroll' | 'navigate' | 'extract' | 
+        'select' | 'check' | 'upload' | 'hover' | 'drag' | 'press' | 'wait' | 'submit';
   selector?: string;
-  value?: string;
+  value?: string | boolean | string[];
   x?: number;
   y?: number;
   url?: string;
+  targetSelector?: string; // for drag
+  key?: string; // for press (Enter, Tab, Escape, etc.)
+  timeout?: number; // for wait (milliseconds)
 }
 
 export interface AgentTask {
@@ -89,6 +93,46 @@ export interface AgentTask {
   actions: AgentAction[];
   status: 'pending' | 'running' | 'completed' | 'failed';
   result?: string;
+}
+
+export interface InteractiveElement {
+  id: string;
+  selector: string;
+  type: string;
+  tagName: string;
+  text: string;
+  value?: string;
+  placeholder?: string;
+  attributes: Record<string, string>;
+  position: {
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+  };
+  isVisible: boolean;
+  context?: string;
+}
+
+export interface TaskPlan {
+  actions: AgentAction[];
+  complexity: 'simple' | 'complex';
+  completed?: boolean;
+  description?: string;
+}
+
+export interface ExecutionResult {
+  success: boolean;
+  steps?: string[];
+  error?: string;
+  data?: unknown;
+}
+
+export interface AgentExecutionStep {
+  action: AgentAction;
+  result: string;
+  success: boolean;
+  timestamp: number;
 }
 
 // History Analysis Types
@@ -131,7 +175,10 @@ export type MessageType =
   | 'GET_PAGE_CONTEXT'
   | 'OPEN_SIDEPANEL'
   | 'SAVE_MEMORY'
-  | 'ANALYZE_HISTORY';
+  | 'ANALYZE_HISTORY'
+  | 'GET_INTERACTIVE_DOM'
+  | 'EXECUTE_AGENT_TASK'
+  | 'STOP_AGENT_EXECUTION';
 
 export interface ExtensionMessage<T = unknown> {
   type: MessageType;
