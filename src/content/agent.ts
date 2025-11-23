@@ -98,13 +98,19 @@ export class PageAgent {
         const element = document.querySelector(action.selector);
         if (element) {
           element.scrollIntoView({ behavior: 'smooth' });
-          resolve(`Scrolled to element: ${action.selector}`);
+          // 等待滚动动画完成（通常 300-500ms）
+          setTimeout(() => {
+            resolve(`Scrolled to element: ${action.selector}`);
+          }, 500);
         } else {
           resolve(`Element not found: ${action.selector}`);
         }
       } else if (action.y !== undefined) {
         window.scrollTo({ top: action.y, behavior: 'smooth' });
-        resolve(`Scrolled to Y position: ${action.y}`);
+        // 等待滚动动画完成
+        setTimeout(() => {
+          resolve(`Scrolled to Y position: ${action.y}`);
+        }, 500);
       } else {
         resolve('No scroll target specified');
       }

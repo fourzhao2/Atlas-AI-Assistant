@@ -4,16 +4,16 @@ import { storage } from '@/services/storage';
 import { aiService } from '@/services/ai-service';
 import { memoryService } from '@/services/memory';
 import { conversationService } from '@/services/conversation';
-import { agentExecutor } from '@/services/agent-executor';
 import { agentTools } from '@/services/agent-tools';
 import { getPageContent } from '@/utils/messaging';
 import { measurePerf } from '@/utils/performance';
+import { useAgent } from '@/hooks/useAgent';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { QuickActions } from './components/QuickActions';
 import { Sidebar } from './components/Sidebar';
-import { AgentExecutionPanel } from './components/AgentExecutionPanel';
-import type { AIMessage, PageContent, AgentExecutionStep } from '@/types';
+import { ReActPanel } from './components/ReActPanel';
+import type { AIMessage, PageContent } from '@/types';
 
 export const App = () => {
   const {
@@ -37,22 +37,169 @@ export const App = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [streamingMessage, setStreamingMessage] = useState('');
-  const [agentExecuting, setAgentExecuting] = useState(false);
-  const [agentSteps, setAgentSteps] = useState<AgentExecutionStep[]>([]);
+  const [isSending, setIsSending] = useState(false); // 防止重复提交
+  const currentRequestRef = useRef<AbortController | null>(null); // 用于取消请求
+
+  // 🔄 使用 ReAct Agent Hook
+  const agent = useAgent({
+    onMessage: (message) => {
+      addMessage(message);
+      if (currentConversationId) {
+        conversationService.addMessage(currentConversationId, message);
+      }
+    },
+    conversationId: currentConversationId,
+  });
+
+  // Listen for messages from popup or background
+  useEffect(() => {
+    const messageListener = (
+      message: { type: string; payload?: any },
+      _sender: chrome.runtime.MessageSender,
+      _sendResponse: (response?: any) => void
+    ) => {
+      console.log('[SidePanel] 收到消息:', message);
+
+      if (message.type === 'TRIGGER_ACTION') {
+        const action = message.payload?.action;
+        if (action) {
+          console.log('[SidePanel] 触发快捷操作:', action);
+
+          // 延迟一下，确保侧边栏已经完全加载和状态初始化
+          setTimeout(() => {
+            // 使用内部定义的 triggerAction 函数
+            const triggerAction = (actionType: string) => {
+              // 对于 summarize，直接显示页面信息
+              if (actionType === 'summarize') {
+                getPageContent().then((response) => {
+                  if (response.success && response.data) {
+                    const page = response.data as PageContent;
+                    const pageInfoMessage: AIMessage = {
+                      role: 'assistant',
+                      content: `📄 **当前页面信息**\n\n` +
+                        `**标题**: ${page.title}\n` +
+                        `**网址**: ${page.url}\n\n` +
+                        `**页面内容摘要**:\n${page.excerpt || page.content.substring(0, 500)}${page.content.length > 500 ? '...' : ''}\n\n` +
+                        `💡 如果需要更详细的总结，可以问我："请详细总结这个页面"`,
+                      timestamp: Date.now(),
+                    };
+                    addMessage(pageInfoMessage);
+                  }
+                });
+                return;
+              }
+
+              // 其他操作
+              let prompt = '';
+              switch (actionType) {
+                case 'explain':
+                  prompt = '请详细解释当前页面的内容，帮助我更好地理解。';
+                  break;
+                case 'translate':
+                  prompt = '请将当前页面的主要内容翻译成英文。';
+                  break;
+                case 'qa':
+                  prompt = '我想问一些关于当前页面内容的问题。';
+                  break;
+              }
+
+              if (prompt) {
+                handleSendMessage(prompt);
+              }
+            };
+
+            triggerAction(action);
+          }, 300);
+        }
+      }
+
+      if (message.type === 'TRIGGER_SUMMARIZE' || message.type === 'SHOW_PAGE_SUMMARY') {
+        console.log('[SidePanel] 触发总结操作');
+
+        // 延迟执行，确保组件已完全初始化
+        setTimeout(() => {
+          console.log('[SidePanel] 开始显示页面总结');
+
+          // 如果消息中带有页面数据，直接使用
+          const pageData = message.payload;
+
+          if (pageData) {
+            console.log('[SidePanel] 使用消息中的页面数据');
+            const pageInfoMessage: AIMessage = {
+              role: 'assistant',
+              content: `📄 **当前页面信息**\n\n` +
+                `**标题**: ${pageData.title}\n` +
+                `**网址**: ${pageData.url}\n\n` +
+                `**页面内容摘要**:\n${pageData.excerpt || pageData.content.substring(0, 500)}${pageData.content.length > 500 ? '...' : ''}\n\n` +
+                `💡 **你可以问我**：\n` +
+                `• "请详细总结这个页面"\n` +
+                `• "这个页面的重点是什么？"\n` +
+                `• "帮我提取关键信息"`,
+              timestamp: Date.now(),
+            };
+            addMessage(pageInfoMessage);
+          } else {
+            console.log('[SidePanel] 动态获取页面数据');
+            // 动态获取页面内容
+            getPageContent().then((response) => {
+              if (response.success && response.data) {
+                const page = response.data as PageContent;
+                const pageInfoMessage: AIMessage = {
+                  role: 'assistant',
+                  content: `📄 **当前页面信息**\n\n` +
+                    `**标题**: ${page.title}\n` +
+                    `**网址**: ${page.url}\n\n` +
+                    `**页面内容摘要**:\n${page.excerpt || page.content.substring(0, 500)}${page.content.length > 500 ? '...' : ''}\n\n` +
+                    `💡 **你可以问我**：\n` +
+                    `• "请详细总结这个页面"\n` +
+                    `• "这个页面的重点是什么？"\n` +
+                    `• "帮我提取关键信息"`,
+                  timestamp: Date.now(),
+                };
+                addMessage(pageInfoMessage);
+              } else {
+                console.error('[SidePanel] 获取页面内容失败:', response.error);
+                const errorMessage: AIMessage = {
+                  role: 'assistant',
+                  content: `⚠️ 无法获取页面内容\n\n` +
+                    `**可能原因**：\n` +
+                    `• 页面尚未完全加载\n` +
+                    `• 这是浏览器特殊页面（如：chrome://、edge://）\n` +
+                    `• Content Script 未注入\n\n` +
+                    `**解决方法**：\n` +
+                    `1. 刷新页面（按 F5）\n` +
+                    `2. 确保在普通网页上使用\n` +
+                    `3. 重新打开侧边栏`,
+                  timestamp: Date.now(),
+                };
+                addMessage(errorMessage);
+              }
+            });
+          }
+        }, 300);
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(messageListener);
+
+    return () => {
+      chrome.runtime.onMessage.removeListener(messageListener);
+    };
+  }, []); // 空依赖数组，只在挂载时注册一次
 
   // Initialize
   useEffect(() => {
     const init = async () => {
       const perfStart = performance.now();
       console.log('[SidePanel] 🚀 开始并行初始化...');
-      
+
       try {
         // 阶段1: 并行加载核心数据（最快，立即需要的）
         const [prefs, _] = await Promise.all([
           storage.getPreferences(),
           conversationService.migrateOldChatHistory(),
         ]);
-        
+
         // 应用偏好设置
         let finalPrefs = prefs;
         if (!prefs.agentMode) {
@@ -61,26 +208,26 @@ export const App = () => {
           // 异步保存，不阻塞
           storage.setPreferences(finalPrefs).catch(console.error);
         }
-        
+
         setPreferences(finalPrefs);
-        
+
         // 立即设置主题（不需要等待）
         const systemTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         const activeTheme = finalPrefs.theme === 'system' ? systemTheme : finalPrefs.theme;
         setTheme(activeTheme);
         document.documentElement.classList.toggle('dark', activeTheme === 'dark');
-        
+
         // 阶段2: 并行加载对话数据和AI服务
         const [allConversations, currentId, __] = await Promise.all([
           conversationService.getConversations(),
           storage.getCurrentConversationId(),
           aiService.initialize(),
         ]);
-        
+
         setConversations(allConversations);
         setCurrentConversationId(currentId);
         console.log('[SidePanel] 加载对话:', allConversations.length, '个');
-        
+
         // 阶段3: 加载当前对话消息（如果有）
         let currentMessages: AIMessage[] = [];
         if (currentId) {
@@ -91,7 +238,7 @@ export const App = () => {
             console.log('[SidePanel] 加载消息:', currentConv.messages.length, '条');
           }
         }
-        
+
         // 阶段4: 并行检查配置和获取页面内容（允许失败）
         const [configs, pageResponse] = await Promise.all([
           storage.getAllProviderConfigs(),
@@ -100,34 +247,34 @@ export const App = () => {
             return { success: false as const, error: err.message };
           }),
         ]);
-        
+
         // 检查是否需要显示欢迎消息
         const hasAnyProvider = configs.openai || configs.anthropic || configs.gemini;
         if (!hasAnyProvider && currentMessages.length === 0) {
           const welcomeMessage: AIMessage = {
             role: 'assistant',
             content: `👋 欢迎使用 Atlas AI 助手！\n\n` +
-                     `要开始使用，请先配置 AI 提供商：\n\n` +
-                     `📝 配置步骤：\n` +
-                     `1. 点击右上角的扩展图标\n` +
-                     `2. 选择"设置"或"选项"\n` +
-                     `3. 在"AI 提供商"标签中配置您的 API Key\n\n` +
-                     `💡 支持的提供商：\n` +
-                     `• OpenAI GPT (推荐)\n` +
-                     `• Anthropic Claude\n` +
-                     `• Google Gemini\n\n` +
-                     `⚡ 配置完成后，就可以开始使用了！`,
+              `要开始使用，请先配置 AI 提供商：\n\n` +
+              `📝 配置步骤：\n` +
+              `1. 点击右上角的扩展图标\n` +
+              `2. 选择"设置"或"选项"\n` +
+              `3. 在"AI 提供商"标签中配置您的 API Key\n\n` +
+              `💡 支持的提供商：\n` +
+              `• OpenAI GPT (推荐)\n` +
+              `• Anthropic Claude\n` +
+              `• Google Gemini\n\n` +
+              `⚡ 配置完成后，就可以开始使用了！`,
             timestamp: Date.now(),
           };
           addMessage(welcomeMessage);
         }
-        
+
         // 更新页面内容（非阻塞）
         if ('data' in pageResponse && pageResponse.success && pageResponse.data) {
           setCurrentPage(pageResponse.data as PageContent);
           console.log('[SidePanel] 页面标题:', (pageResponse.data as PageContent).title);
         }
-        
+
         const perfEnd = performance.now();
         console.log(`[SidePanel] ✅ 初始化完成，耗时: ${(perfEnd - perfStart).toFixed(2)}ms`);
       } catch (error) {
@@ -150,9 +297,26 @@ export const App = () => {
   }, [messages, streamingMessage]);
 
   const handleSendMessage = async (content: string) => {
+    // 🔒 防止重复提交
+    if (isSending) {
+      console.warn('[Chat] ⚠️ 消息正在发送中，请稍候...');
+      return;
+    }
+
     const endMeasure = measurePerf('发送消息');
     console.log('[Chat] 发送消息:', content);
-    
+
+    // 取消之前的请求（如果有）
+    if (currentRequestRef.current) {
+      console.log('[Chat] 取消之前的请求');
+      currentRequestRef.current.abort();
+    }
+
+    // 创建新的请求控制器
+    currentRequestRef.current = new AbortController();
+
+    setIsSending(true); // 设置发送中标志
+
     // 检查是否有当前对话
     if (!currentConversationId) {
       console.error('[Chat] 没有当前对话');
@@ -162,40 +326,42 @@ export const App = () => {
         timestamp: Date.now(),
       };
       addMessage(errorMessage);
+      setIsSending(false); // 重置发送状态
       return;
     }
-    
+
     // 检查是否配置了API Key
     const configs = await storage.getAllProviderConfigs();
     const defaultConfig = configs[preferences.defaultProvider];
-    
+
     if (!defaultConfig || !defaultConfig.apiKey) {
       const errorMessage: AIMessage = {
         role: 'assistant',
         content: `❌ 请先配置 ${preferences.defaultProvider.toUpperCase()} API Key\n\n` +
-                 `📝 配置步骤：\n` +
-                 `1. 点击扩展图标，选择"设置"\n` +
-                 `2. 进入"AI 提供商"标签\n` +
-                 `3. 配置您的 API Key\n\n` +
-                 `💡 如果您没有 API Key，可以到官网申请：\n` +
-                 `- OpenAI: https://platform.openai.com/\n` +
-                 `- Anthropic: https://console.anthropic.com/\n` +
-                 `- Google AI: https://ai.google.dev/`,
+          `📝 配置步骤：\n` +
+          `1. 点击扩展图标，选择"设置"\n` +
+          `2. 进入"AI 提供商"标签\n` +
+          `3. 配置您的 API Key\n\n` +
+          `💡 如果您没有 API Key，可以到官网申请：\n` +
+          `- OpenAI: https://platform.openai.com/\n` +
+          `- Anthropic: https://console.anthropic.com/\n` +
+          `- Google AI: https://ai.google.dev/`,
         timestamp: Date.now(),
       };
       addMessage(errorMessage);
+      setIsSending(false); // 重置发送状态
       return;
     }
-    
+
     // Add user message
     const userMessage: AIMessage = {
       role: 'user',
       content,
       timestamp: Date.now(),
     };
-    
+
     addMessage(userMessage);
-    
+
     // 批量更新：合并多个操作，减少storage写入
     const conversation = await storage.getConversation(currentConversationId);
     if (conversation) {
@@ -205,39 +371,39 @@ export const App = () => {
         const titleText = userMessage.content.substring(0, 30);
         newTitle = titleText.length < userMessage.content.length ? titleText + '...' : titleText;
       }
-      
+
       // 一次性更新对话（减少storage写入）
       await storage.updateConversation(currentConversationId, {
         messages: [...conversation.messages, userMessage],
         title: newTitle,
         updatedAt: Date.now(),
       });
-      
+
       // 更新本地conversations状态
-      const updatedConvs = conversations.map(c => 
-        c.id === currentConversationId 
+      const updatedConvs = conversations.map(c =>
+        c.id === currentConversationId
           ? { ...c, title: newTitle, updatedAt: Date.now() }
           : c
       );
       setConversations(updatedConvs);
     }
-    
+
     setLoading(true);
     setStreamingMessage('');
 
     try {
       console.log('[Chat] 开始准备消息...');
-      
+
       // 重新获取当前页面内容
       const pageResponse = await getPageContent();
       if (pageResponse.success && pageResponse.data) {
         setCurrentPage(pageResponse.data as PageContent);
         console.log('[Chat] 已更新页面内容');
       }
-      
+
       // Prepare messages with memory
       let messagesToSend = [...messages, userMessage];
-      
+
       if (preferences.memoryEnabled) {
         messagesToSend = await memoryService.enhanceMessageWithMemory(messagesToSend);
       }
@@ -245,29 +411,29 @@ export const App = () => {
       // 🎯 使用 Function Calling 架构
       console.log('[Chat] 调用 AI 服务，消息数量:', messagesToSend.length);
       console.log('[Chat] Agent 模式状态:', preferences.agentMode ? '✅ 已启用' : '❌ 未启用');
-      
+
       // Step 1: 如果启用了 Agent 模式，先用 chatWithTools 判断是否需要调用工具
       if (preferences.agentMode) {
         console.log('[Chat] 🤖 Agent 模式已启用，检查是否需要调用工具...');
         console.log('[Chat] 可用工具数量:', agentTools.length);
         console.log('[Chat] 工具列表:', agentTools.map(t => t.name));
-        
+
         try {
           const toolResponse = await aiService.chatWithTools(
             messagesToSend,
             agentTools
           );
-          
+
           console.log('[Chat] ✓ chatWithTools 响应:', {
             hasContent: !!toolResponse.content,
             hasToolCalls: !!toolResponse.toolCalls,
             toolCallsCount: toolResponse.toolCalls?.length || 0
           });
-          
+
           // 检查是否有 tool calls
           if (toolResponse.toolCalls && toolResponse.toolCalls.length > 0) {
             console.log('[Chat] 🔧 AI 决定调用工具:', toolResponse.toolCalls);
-            
+
             // 先显示 AI 的回复（如果有）
             if (toolResponse.content) {
               const preMessage: AIMessage = {
@@ -275,70 +441,140 @@ export const App = () => {
                 content: toolResponse.content,
                 timestamp: Date.now(),
               };
-              
+
               addMessage(preMessage);
-              
+
               if (currentConversationId) {
                 await conversationService.addMessage(currentConversationId, preMessage);
               }
             }
-            
+
             setLoading(false);
-            
+
             // 执行 tool calls
             for (const toolCall of toolResponse.toolCalls) {
               console.log('[Chat] 执行 tool:', toolCall.name, toolCall.arguments);
-              
+
               // 特殊处理 get_page_content
               if (toolCall.name === 'get_page_content') {
                 console.log('[Chat] AI 请求获取页面内容');
-                
+
                 if (currentPage) {
                   const pageContentMsg: AIMessage = {
                     role: 'assistant',
                     content: `📄 **当前页面信息**\n\n**标题**: ${currentPage.title}\n**网址**: ${currentPage.url}\n\n**页面内容摘要**:\n${currentPage.excerpt || currentPage.content.substring(0, 500)}...`,
                     timestamp: Date.now()
                   };
-                  
+
                   addMessage(pageContentMsg);
-                  
+
                   if (currentConversationId) {
                     await conversationService.addMessage(currentConversationId, pageContentMsg);
                   }
+
+                  // 🔄 将页面内容反馈给 AI，让它继续回答
+                  console.log('[Chat] 将页面内容发送给 AI...');
+                  const contextMsg: AIMessage = {
+                    role: 'user',
+                    content: `[System] Page Content:\nTitle: ${currentPage.title}\nURL: ${currentPage.url}\nContent:\n${currentPage.content.substring(0, 20000)}`,
+                    timestamp: Date.now()
+                  };
+
+                  try {
+                    const nextResponse = await aiService.chatWithTools(
+                      [...messagesToSend, pageContentMsg, contextMsg],
+                      agentTools
+                    );
+
+                    if (nextResponse.content) {
+                      const finalMsg: AIMessage = {
+                        role: 'assistant',
+                        content: nextResponse.content,
+                        timestamp: Date.now()
+                      };
+                      addMessage(finalMsg);
+                      if (currentConversationId) {
+                        await conversationService.addMessage(currentConversationId, finalMsg);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[Chat] 后续对话失败:', err);
+                  }
+
                 } else {
                   const errorMsg: AIMessage = {
                     role: 'assistant',
                     content: '⚠️ 无法获取页面内容，请刷新页面后重试。',
                     timestamp: Date.now()
                   };
-                  
+
                   addMessage(errorMsg);
-                  
+
                   if (currentConversationId) {
                     await conversationService.addMessage(currentConversationId, errorMsg);
                   }
                 }
-                
+
                 continue;
               }
-              
+
               // 其他 tool calls 转换为 Agent instruction
               const instruction = convertToolCallToInstruction(toolCall);
-              
+
               if (instruction) {
-                await handleAgentExecution(instruction);
+                // 使用 ReAct Agent 执行
+                const result = await agent.execute(instruction);
+
+                // 🔄 将执行结果反馈给 AI
+                if (result.success) {
+                  console.log('[Chat] Agent 执行完成，将结果反馈给 AI...');
+                  const toolOutput = result.steps && result.steps.length > 0
+                    ? result.steps.join('\n')
+                    : 'Task completed successfully.';
+
+                  const contextMsg: AIMessage = {
+                    role: 'user',
+                    content: `[System] Tool Execution Result:\n${toolOutput}`,
+                    timestamp: Date.now()
+                  };
+
+                  try {
+                    // 获取最新的对话上下文（包含 Agent 生成的中间步骤消息）
+                    // 注意：这里简化处理，直接使用 messagesToSend + contextMsg
+                    // 理想情况下应该重新获取 store 中的 messages，但 agent.execute 产生的消息可能还没完全同步到 store
+
+                    const nextResponse = await aiService.chatWithTools(
+                      [...messagesToSend, contextMsg],
+                      agentTools
+                    );
+
+                    if (nextResponse.content) {
+                      const finalMsg: AIMessage = {
+                        role: 'assistant',
+                        content: nextResponse.content,
+                        timestamp: Date.now()
+                      };
+                      addMessage(finalMsg);
+                      if (currentConversationId) {
+                        await conversationService.addMessage(currentConversationId, finalMsg);
+                      }
+                    }
+                  } catch (err) {
+                    console.error('[Chat] Agent 后续对话失败:', err);
+                  }
+                }
               }
             }
-            
+
             // 刷新对话列表
             if (currentConversationId) {
               const updatedConversations = await conversationService.getConversations();
               setConversations(updatedConversations);
             }
-            
+
             return; // 完成，不需要继续流式响应
           }
-          
+
           // 没有 tool calls，显示 AI 的文本回复
           if (toolResponse.content) {
             const assistantMessage: AIMessage = {
@@ -346,16 +582,16 @@ export const App = () => {
               content: toolResponse.content,
               timestamp: Date.now(),
             };
-            
+
             addMessage(assistantMessage);
-            
+
             if (currentConversationId) {
               await conversationService.addMessage(currentConversationId, assistantMessage);
-              
+
               const updatedConversations = await conversationService.getConversations();
               setConversations(updatedConversations);
             }
-            
+
             setLoading(false);
             return;
           }
@@ -364,7 +600,7 @@ export const App = () => {
           // 如果 tool calling 失败，继续使用流式响应
         }
       }
-      
+
       // Step 2: 流式响应（没有启用 Agent 或 tool calling 失败时）
       let fullResponse = '';
       let isFirstChunk = true;
@@ -380,7 +616,7 @@ export const App = () => {
           setStreamingMessage(fullResponse);
         }
       );
-      
+
       console.log('[Chat] 响应完成，总长度:', fullResponse.length);
 
       const assistantMessage: AIMessage = {
@@ -388,68 +624,76 @@ export const App = () => {
         content: fullResponse,
         timestamp: Date.now(),
       };
-      
+
       addMessage(assistantMessage);
-      
+
       if (currentConversationId) {
         await conversationService.addMessage(currentConversationId, assistantMessage);
-        
+
         const updatedConversations = await conversationService.getConversations();
         setConversations(updatedConversations);
       }
-      
+
       setStreamingMessage('');
       setLoading(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('[Chat] 错误:', error);
-      
+
+      // 🔒 如果是取消请求，静默处理
+      if (error?.name === 'AbortError') {
+        console.log('[Chat] 请求已取消');
+        setStreamingMessage('');
+        setLoading(false);
+        return;
+      }
+
       let errorMsg = error instanceof Error ? error.message : '发送消息失败';
       let troubleshootSteps = '';
-      
+
       // 根据错误类型提供针对性的解决方案
       if (errorMsg.includes('Failed to fetch') || errorMsg.includes('NetworkError')) {
         troubleshootSteps = `🔍 网络连接问题，可能的原因：\n\n` +
-                           `1. 无法访问 API 服务器\n` +
-                           `   • 检查网络连接是否正常\n` +
-                           `   • 如果使用自定义 API，确认地址正确\n` +
-                           `   • 可能需要使用代理或VPN\n\n` +
-                           `2. CORS 或防火墙问题\n` +
-                           `   • 某些网络环境可能阻止请求\n` +
-                           `   • 尝试更换网络环境\n\n` +
-                           `3. API 服务暂时不可用\n` +
-                           `   • 稍后再试`;
+          `1. 无法访问 API 服务器\n` +
+          `   • 检查网络连接是否正常\n` +
+          `   • 如果使用自定义 API，确认地址正确\n` +
+          `   • 可能需要使用代理或VPN\n\n` +
+          `2. CORS 或防火墙问题\n` +
+          `   • 某些网络环境可能阻止请求\n` +
+          `   • 尝试更换网络环境\n\n` +
+          `3. API 服务暂时不可用\n` +
+          `   • 稍后再试`;
       } else if (errorMsg.includes('401') || errorMsg.includes('Unauthorized') || errorMsg.includes('API key')) {
         troubleshootSteps = `🔑 API Key 问题：\n\n` +
-                           `1. API Key 可能无效或已过期\n` +
-                           `2. 请检查设置中的 API Key 是否正确\n` +
-                           `3. 确认 API Key 有足够的配额\n\n` +
-                           `📝 如何解决：\n` +
-                           `• 进入"设置" → "AI 提供商"\n` +
-                           `• 重新配置正确的 API Key`;
+          `1. API Key 可能无效或已过期\n` +
+          `2. 请检查设置中的 API Key 是否正确\n` +
+          `3. 确认 API Key 有足够的配额\n\n` +
+          `📝 如何解决：\n` +
+          `• 进入"设置" → "AI 提供商"\n` +
+          `• 重新配置正确的 API Key`;
       } else if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
         troubleshootSteps = `⏱️ 请求频率限制：\n\n` +
-                           `API 调用过于频繁，请稍后再试。\n\n` +
-                           `💡 建议：\n` +
-                           `• 等待 1-2 分钟后重试\n` +
-                           `• 考虑升级 API 套餐以获得更高配额`;
+          `API 调用过于频繁，请稍后再试。\n\n` +
+          `💡 建议：\n` +
+          `• 等待 1-2 分钟后重试\n` +
+          `• 考虑升级 API 套餐以获得更高配额`;
       } else if (errorMsg.includes('未配置')) {
         troubleshootSteps = `📋 配置检查清单：\n\n` +
-                           `✓ 是否已配置 AI 提供商？\n` +
-                           `✓ API Key 是否填写正确？\n` +
-                           `✓ 默认提供商是否选择正确？\n\n` +
-                           `📝 配置步骤：\n` +
-                           `1. 点击扩展图标 → 设置\n` +
-                           `2. 选择"AI 提供商"标签\n` +
-                           `3. 配置您的 API Key`;
+          `✓ 是否已配置 AI 提供商？\n` +
+          `✓ API Key 是否填写正确？\n` +
+          `✓ 默认提供商是否选择正确？\n\n` +
+          `📝 配置步骤：\n` +
+          `1. 点击扩展图标 → 设置\n` +
+          `2. 选择"AI 提供商"标签\n` +
+          `3. 配置您的 API Key`;
       } else {
         troubleshootSteps = `💡 常规排查步骤：\n\n` +
-                           `1. 检查 API Key 配置是否正确\n` +
-                           `2. 确认网络连接正常\n` +
-                           `3. 检查自定义 API 地址（如有）\n` +
-                           `4. 查看浏览器控制台的详细错误信息\n` +
-                           `5. 尝试切换到其他 AI 提供商`;
+          `1. 检查 API Key 配置是否正确\n` +
+          `2. 确认网络连接正常\n` +
+          `3. 检查自定义 API 地址（如有）\n` +
+          `4. 查看浏览器控制台的详细错误信息\n` +
+          `5. 尝试切换到其他 AI 提供商`;
       }
-      
+
       const errorMessage: AIMessage = {
         role: 'assistant',
         content: `❌ 发送失败\n\n**错误信息**：${errorMsg}\n\n${troubleshootSteps}`,
@@ -460,15 +704,42 @@ export const App = () => {
       setLoading(false);
     } finally {
       endMeasure();
+      setIsSending(false); // 清除发送中标志
+      currentRequestRef.current = null; // 清除请求引用
     }
   };
 
   const handleQuickAction = async (action: string) => {
+    // 特殊处理：显示页面信息
+    if (action === 'summarize' && currentPage) {
+      const pageInfoMessage: AIMessage = {
+        role: 'assistant',
+        content: `📄 **当前页面信息**\n\n` +
+          `**标题**: ${currentPage.title}\n` +
+          `**网址**: ${currentPage.url}\n\n` +
+          `**页面内容摘要**:\n${currentPage.excerpt || currentPage.content.substring(0, 500)}${currentPage.content.length > 500 ? '...' : ''}\n\n` +
+          `💡 如果需要更详细的总结，可以问我："请详细总结这个页面"`,
+        timestamp: Date.now(),
+      };
+
+      addMessage(pageInfoMessage);
+
+      if (currentConversationId) {
+        await conversationService.addMessage(currentConversationId, pageInfoMessage);
+        const updatedConversations = await conversationService.getConversations();
+        setConversations(updatedConversations);
+      }
+
+      return;
+    }
+
+    // 其他操作：发送提示给 AI
     let prompt = '';
-    
+
     switch (action) {
       case 'summarize':
-        prompt = '请总结当前页面的主要内容和关键要点。';
+        // 如果没有页面内容，提示用户
+        prompt = '⚠️ 无法获取当前页面内容，请刷新页面后重试。';
         break;
       case 'explain':
         prompt = '请详细解释当前页面的内容，帮助我更好地理解。';
@@ -480,7 +751,7 @@ export const App = () => {
         prompt = '我想问一些关于当前页面内容的问题。';
         break;
     }
-    
+
     if (prompt) {
       handleSendMessage(prompt);
     }
@@ -489,42 +760,60 @@ export const App = () => {
   // Handle conversation actions
   const handleNewConversation = async () => {
     const pageResponse = await getPageContent();
-    const pageUrl = pageResponse.success && pageResponse.data 
-      ? (pageResponse.data as PageContent).url 
+    const pageUrl = pageResponse.success && pageResponse.data
+      ? (pageResponse.data as PageContent).url
       : undefined;
-    
+
     const newConv = await conversationService.createConversation(undefined, pageUrl);
-    
+
     const updatedConversations = await conversationService.getConversations();
     setConversations(updatedConversations);
     setCurrentConversationId(newConv.id);
     setMessages([]);
-    
+
     console.log('[Chat] 创建新对话:', newConv.id);
   };
 
   const handleSelectConversation = async (id: string) => {
+    // 🔒 取消正在进行的请求
+    if (currentRequestRef.current) {
+      console.log('[Chat] 取消正在进行的消息发送');
+      currentRequestRef.current.abort();
+      currentRequestRef.current = null;
+    }
+
+    // 停止Agent执行
+    if (agent.isExecuting) {
+      console.log('[Chat] 停止ReAct Agent执行');
+      agent.stop();
+    }
+
+    // 清除loading状态
+    setLoading(false);
+    setIsSending(false);
+    setStreamingMessage('');
+
     await conversationService.switchConversation(id);
     setCurrentConversationId(id);
-    
+
     const conv = await storage.getConversation(id);
     if (conv) {
       setMessages(conv.messages);
       console.log('[Chat] 切换到对话:', id, '消息数:', conv.messages.length);
     }
-    
+
     setSidebarOpen(false);
   };
 
   const handleDeleteConversation = async (id: string) => {
     await conversationService.deleteConversation(id);
-    
+
     const updatedConversations = await conversationService.getConversations();
     setConversations(updatedConversations);
-    
+
     const newCurrentId = await storage.getCurrentConversationId();
     setCurrentConversationId(newCurrentId);
-    
+
     if (newCurrentId) {
       const conv = await storage.getConversation(newCurrentId);
       if (conv) {
@@ -533,131 +822,54 @@ export const App = () => {
     } else {
       setMessages([]);
     }
-    
+
     console.log('[Chat] 删除对话:', id);
   };
 
   const handleRenameConversation = async (id: string, title: string) => {
     await conversationService.updateTitle(id, title);
-    
+
     const updatedConversations = await conversationService.getConversations();
     setConversations(updatedConversations);
-    
+
     console.log('[Chat] 重命名对话:', id, title);
   };
 
   // Agent 相关函数
   const convertToolCallToInstruction = (toolCall: { name: string; arguments: Record<string, unknown> }): string => {
     const args = toolCall.arguments;
-    
+
     switch (toolCall.name) {
       case 'web_search':
         return `搜索 ${args.query}`;
-      
+
       case 'navigate_to_url':
         return `打开 ${args.url}`;
-      
+
       case 'click_element':
         return `点击 ${args.selector}`;
-      
+
       case 'fill_form':
         return `在 ${args.selector} 填写 ${args.value}`;
-      
+
       case 'scroll_page':
         return `滚动到 ${args.direction}`;
-      
+
       case 'play_video':
         return `播放视频 ${args.query}`;
-      
+
       case 'submit_form':
         return `提交表单`;
-      
+
       case 'select_option':
         return `在 ${args.selector} 选择 ${args.value}`;
-      
+
       default:
         return JSON.stringify(args);
     }
   };
 
-  const handleAgentExecution = async (instruction: string) => {
-    setAgentExecuting(true);
-    setAgentSteps([]);
-    
-    try {
-      const result = await agentExecutor.executeTask(instruction, {
-        onStep: (step) => {
-          setAgentSteps(prev => [...prev, step]);
-          
-          // 同时添加到聊天消息中
-          const stepMessage: AIMessage = {
-            role: 'assistant',
-            content: `${step.success ? '✓' : '✗'} ${step.result}`,
-            timestamp: step.timestamp
-          };
-          
-          addMessage(stepMessage);
-          
-          if (currentConversationId) {
-            conversationService.addMessage(currentConversationId, stepMessage);
-          }
-        },
-        onComplete: async (result) => {
-          setAgentExecuting(false);
-          
-          const completeMessage: AIMessage = {
-            role: 'assistant',
-            content: result.success 
-              ? `✅ 任务完成！执行了 ${result.steps?.length || 0} 个步骤。`
-              : `❌ 任务失败：${result.error}`,
-            timestamp: Date.now()
-          };
-          
-          addMessage(completeMessage);
-          
-          if (currentConversationId) {
-            await conversationService.addMessage(currentConversationId, completeMessage);
-            
-            const updatedConversations = await conversationService.getConversations();
-            setConversations(updatedConversations);
-          }
-        },
-        onError: (error) => {
-          setAgentExecuting(false);
-          
-          const errorMessage: AIMessage = {
-            role: 'assistant',
-            content: `❌ 执行错误：${error.message}`,
-            timestamp: Date.now()
-          };
-          
-          addMessage(errorMessage);
-          
-          if (currentConversationId) {
-            conversationService.addMessage(currentConversationId, errorMessage);
-          }
-        }
-      });
-      
-      console.log('[Chat] Agent 执行结果:', result);
-    } catch (error) {
-      console.error('[Chat] Agent 执行异常:', error);
-      setAgentExecuting(false);
-      
-      const errorMessage: AIMessage = {
-        role: 'assistant',
-        content: `❌ 执行异常：${error instanceof Error ? error.message : '未知错误'}`,
-        timestamp: Date.now()
-      };
-      
-      addMessage(errorMessage);
-    }
-  };
-
-  const handleStopAgent = () => {
-    agentExecutor.stopExecution();
-    setAgentExecuting(false);
-  };
+  // ✅ Agent 执行已由 useAgent Hook 处理
 
   return (
     <div className="flex h-screen bg-white dark:bg-gray-900">
@@ -672,7 +884,7 @@ export const App = () => {
         onDeleteConversation={handleDeleteConversation}
         onRenameConversation={handleRenameConversation}
       />
-      
+
       {/* Main Content */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
@@ -714,31 +926,32 @@ export const App = () => {
               <p className="text-sm mt-2">使用快捷操作或直接输入消息开始对话。</p>
             </div>
           )}
-          
-          {/* Agent Execution Panel */}
-          {(agentExecuting || agentSteps.length > 0) && (
-            <AgentExecutionPanel
-              steps={agentSteps}
-              isExecuting={agentExecuting}
-              onStop={handleStopAgent}
+
+          {/* ReAct Agent Panel */}
+          {agent.hasSteps && (
+            <ReActPanel
+              steps={agent.reactSteps}
+              currentPhase={agent.phase}
+              isExecuting={agent.isExecuting}
+              onStop={agent.stop}
             />
           )}
-          
+
           {messages.map((message, index) => (
             <ChatMessage key={index} message={message} />
           ))}
-          
+
           {streamingMessage && (
-            <ChatMessage 
-              message={{ 
-                role: 'assistant', 
+            <ChatMessage
+              message={{
+                role: 'assistant',
                 content: streamingMessage,
                 timestamp: Date.now(),
               }}
               isStreaming={true}
             />
           )}
-          
+
           {isLoading && !streamingMessage && (
             <div className="flex justify-start mb-4">
               <div className="message-assistant">
@@ -750,19 +963,19 @@ export const App = () => {
               </div>
             </div>
           )}
-          
+
           <div ref={messagesEndRef} />
         </div>
 
         {/* Input */}
-        <ChatInput 
-          onSend={handleSendMessage} 
-          disabled={isLoading || agentExecuting}
+        <ChatInput
+          onSend={handleSendMessage}
+          disabled={isLoading || agent.isExecuting || isSending}
           placeholder={
-            agentExecuting 
-              ? '🤖 Agent 正在执行...' 
-              : isLoading 
-                ? '正在思考...' 
+            agent.isExecuting
+              ? '🤖 ReAct Agent 正在执行...'
+              : isLoading
+                ? '正在思考...'
                 : '输入消息...'
           }
         />

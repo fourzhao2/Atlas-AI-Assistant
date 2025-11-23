@@ -29,40 +29,85 @@ export const App: React.FC = () => {
   }, []);
 
   const handleOpenSidePanel = async () => {
-    await sendMessage({ type: 'OPEN_SIDEPANEL' });
-    window.close();
+    console.log('[Popup] 点击打开侧边栏按钮');
+    try {
+      const response = await sendMessage({ type: 'OPEN_SIDEPANEL' });
+      console.log('[Popup] 侧边栏打开响应:', response);
+      
+      if (response.success) {
+        console.log('[Popup] ✅ 侧边栏打开成功');
+        // 延迟一下再关闭 popup，让用户看到侧边栏打开
+        setTimeout(() => {
+          window.close();
+        }, 200);
+      } else {
+        console.error('[Popup] ❌ 侧边栏打开失败:', response.error);
+        alert('打开侧边栏失败: ' + (response.error || '未知错误'));
+      }
+    } catch (error) {
+      console.error('[Popup] ❌ 打开侧边栏异常:', error);
+      alert('打开侧边栏异常: ' + (error instanceof Error ? error.message : '未知错误'));
+    }
   };
 
   const handleQuickAction = async (action: string) => {
     setLoading(true);
-    await sendMessage({ type: 'OPEN_SIDEPANEL' });
     
-    // Send action to side panel
-    setTimeout(() => {
+    // 先打开侧边栏
+    const response = await sendMessage({ type: 'OPEN_SIDEPANEL' });
+    
+    if (response.success) {
+      // 等待侧边栏完全打开
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      // 发送操作消息
       chrome.runtime.sendMessage({
         type: 'TRIGGER_ACTION',
         payload: { action },
       });
-      window.close();
-    }, 100);
+      
+      // 再稍等一下再关闭弹窗
+      setTimeout(() => {
+        window.close();
+      }, 100);
+    } else {
+      setLoading(false);
+      alert('打开侧边栏失败: ' + (response.error || '未知错误'));
+    }
   };
 
   const handleSummarize = async () => {
-    if (!currentPage) return;
-    
+    console.log('[Popup] 点击总结按钮');
     setLoading(true);
-    const response = await sendMessage({
-      type: 'SUMMARIZE_PAGE',
-      payload: currentPage,
-    });
     
-    setLoading(false);
-    
-    if (response.success) {
-      // Open side panel to show summary
-      await handleOpenSidePanel();
-    } else {
-      alert(`总结失败: ${response.error}`);
+    try {
+      // 先打开侧边栏
+      const openResponse = await sendMessage({ type: 'OPEN_SIDEPANEL' });
+      console.log('[Popup] 打开侧边栏响应:', openResponse);
+      
+      if (openResponse.success) {
+        // 等待侧边栏加载完成
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // 发送总结消息
+        console.log('[Popup] 发送 SHOW_PAGE_SUMMARY 消息');
+        chrome.runtime.sendMessage({
+          type: 'SHOW_PAGE_SUMMARY',
+          payload: currentPage,
+        });
+        
+        // 延迟关闭 popup
+        setTimeout(() => {
+          window.close();
+        }, 200);
+      } else {
+        setLoading(false);
+        alert('打开侧边栏失败: ' + (openResponse.error || '未知错误'));
+      }
+    } catch (error) {
+      console.error('[Popup] 总结操作失败:', error);
+      setLoading(false);
+      alert('操作失败: ' + (error instanceof Error ? error.message : '未知错误'));
     }
   };
 

@@ -124,7 +124,7 @@ export const App: React.FC = () => {
     );
     
     if (confirmed) {
-      // 保存当前的Provider配置
+      // 保存当前的Provider配置和偏好设置
       const providerConfigs = await storage.getAllProviderConfigs();
       const currentPrefs = await storage.getPreferences();
       
@@ -142,6 +142,10 @@ export const App: React.FC = () => {
         await storage.setProviderConfig('gemini', providerConfigs.gemini);
       }
       await storage.setPreferences(currentPrefs);
+      
+      // 🔧 重要：清除 currentConversationId，避免指向不存在的对话
+      await chrome.storage.local.remove('currentConversationId');
+      console.log('[Options] ✅ 已重置 currentConversationId');
       
       alert('✅ 数据已清除（API 配置已保留）');
       window.location.reload();

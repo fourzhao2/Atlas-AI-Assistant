@@ -109,23 +109,51 @@ export class ContentExtractor {
 
   // ========== Agent-related methods ==========
 
-  // DOM提取缓存
+  // DOM提取缓存（增强版：包含DOM指纹）
   private domCache: {
     elements: InteractiveElement[];
     timestamp: number;
     url: string;
+    fingerprint: string; // 🔍 新增：DOM指纹，用于检测DOM变化
   } | null = null;
+
+  /**
+   * 🔍 生成DOM指纹：用于检测DOM结构变化
+   * 使用轻量级指标：元素数量 + body长度 + 随机抽样元素
+   */
+  private getDOMFingerprint(): string {
+    const totalElements = document.querySelectorAll('*').length;
+    const bodyLength = document.body.innerHTML.length;
+    
+    // 快速抽样检查：检查几个关键位置的元素
+    const sampleSelectors = ['h1', 'button', 'input', 'a'];
+    const sampleCounts = sampleSelectors.map(sel => 
+      document.querySelectorAll(sel).length
+    ).join('-');
+    
+    return `${totalElements}-${bodyLength}-${sampleCounts}`;
+  }
 
   extractInteractiveDOM(maxElements = 100): InteractiveElement[] {
     const perfStart = performance.now();
     
-    // 检查缓存（5秒内有效）
+    // 检查缓存（5秒内有效 + URL相同 + DOM未变化）
     const currentUrl = window.location.href;
+    const currentFingerprint = this.getDOMFingerprint();
+    
+    if (this.domCache && 
+        this.domCache.url === currentUrl &&
+        this.domCache.fingerprint === currentFingerprint && // 🔍 新增：检查DOM是否变化
+        Date.now() - this.domCache.timestamp < 5000) {
+      console.log(`[Extractor] ✅ 使用缓存（DOM未变化），${this.domCache.elements.length}个元素`);
+      return this.domCache.elements;
+    }
+    
+    // 如果fingerprint不同，说明DOM变化了
     if (this.domCache && 
         this.domCache.url === currentUrl && 
-        Date.now() - this.domCache.timestamp < 5000) {
-      console.log(`[Extractor] ✅ 使用缓存，${this.domCache.elements.length}个元素`);
-      return this.domCache.elements;
+        this.domCache.fingerprint !== currentFingerprint) {
+      console.log('[Extractor] 🔄 检测到DOM变化，重新提取');
     }
     
     const elements: InteractiveElement[] = [];
@@ -175,11 +203,12 @@ export class ContentExtractor {
       });
     }
     
-    // 更新缓存
+    // 更新缓存（包含fingerprint）
     this.domCache = {
       elements,
       timestamp: Date.now(),
-      url: currentUrl
+      url: currentUrl,
+      fingerprint: currentFingerprint // 🔍 保存当前DOM指纹
     };
     
     const perfEnd = performance.now();

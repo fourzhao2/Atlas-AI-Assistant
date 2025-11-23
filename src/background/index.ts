@@ -5,6 +5,19 @@ import type { ExtensionMessage, ExtensionResponse, PageContent } from '@/types';
 
 console.log('Atlas extension background service worker started');
 
+// Check sidePanel API availability
+if (typeof chrome.sidePanel === 'undefined') {
+  console.error('[Background] ❌ chrome.sidePanel API 不可用！');
+  console.error('[Background] 请确保：');
+  console.error('[Background] 1. 使用 Chrome 114+ 或 Edge 114+');
+  console.error('[Background] 2. manifest.json 中包含 "sidePanel" 权限');
+} else {
+  console.log('[Background] ✅ chrome.sidePanel API 可用');
+  // 设置点击图标直接打开侧边栏
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.error('[Background] setPanelBehavior failed:', error));
+}
+
 // Initialize services
 aiService.initialize().catch(error => {
   console.error('[Background] AI Service initialization failed:', error);
@@ -18,8 +31,15 @@ try {
 }
 
 // Handle extension icon click - open side panel
+// 设置点击图标直接打开侧边栏
+if (chrome.sidePanel && chrome.sidePanel.setPanelBehavior) {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    .catch((error) => console.error('[Background] Failed to set panel behavior:', error));
+}
+
 chrome.action.onClicked.addListener(async (tab) => {
   try {
+    // Fallback for older browsers or if setPanelBehavior is not supported
     if (tab.id) {
       await chrome.sidePanel.open({ tabId: tab.id });
     }
@@ -53,10 +73,35 @@ async function handleBackgroundMessage(
   try {
     switch (message.type) {
       case 'OPEN_SIDEPANEL':
-        if (sender.tab?.id) {
-          await chrome.sidePanel.open({ tabId: sender.tab.id });
+        console.log('[Background] 收到 OPEN_SIDEPANEL 消息');
+        console.log('[Background] sender.tab:', sender.tab);
+
+        // 如果消息来自 popup，sender.tab 为空，需要获取当前活动 tab
+        let tabId = sender.tab?.id;
+        if (!tabId) {
+          console.log('[Background] sender.tab 为空，查询当前活动标签页');
+          const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+          console.log('[Background] 找到活动标签页:', activeTab);
+          tabId = activeTab?.id;
         }
-        return { success: true };
+
+        if (tabId) {
+          console.log('[Background] 尝试打开侧边栏, tabId:', tabId);
+          try {
+            await chrome.sidePanel.open({ tabId });
+            console.log('[Background] ✅ 侧边栏打开成功');
+            return { success: true };
+          } catch (error) {
+            console.error('[Background] ❌ 侧边栏打开失败:', error);
+            return {
+              success: false,
+              error: error instanceof Error ? error.message : '打开侧边栏失败'
+            };
+          }
+        } else {
+          console.error('[Background] ❌ 无法找到活动标签页');
+          return { success: false, error: '无法找到活动标签页' };
+        }
 
       case 'SUMMARIZE_PAGE':
         const pageContent = message.payload as PageContent;
