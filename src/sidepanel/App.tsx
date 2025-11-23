@@ -69,23 +69,10 @@ export const App = () => {
           setTimeout(() => {
             // 使用内部定义的 triggerAction 函数
             const triggerAction = (actionType: string) => {
-              // 对于 summarize，直接显示页面信息
+              // 对于 summarize,调用 AI 进行总结
               if (actionType === 'summarize') {
-                getPageContent().then((response) => {
-                  if (response.success && response.data) {
-                    const page = response.data as PageContent;
-                    const pageInfoMessage: AIMessage = {
-                      role: 'assistant',
-                      content: `📄 **当前页面信息**\n\n` +
-                        `**标题**: ${page.title}\n` +
-                        `**网址**: ${page.url}\n\n` +
-                        `**页面内容摘要**:\n${page.excerpt || page.content.substring(0, 500)}${page.content.length > 500 ? '...' : ''}\n\n` +
-                        `💡 如果需要更详细的总结，可以问我："请详细总结这个页面"`,
-                      timestamp: Date.now(),
-                    };
-                    addMessage(pageInfoMessage);
-                  }
-                });
+                const prompt = '请详细总结当前页面的内容,包括主要观点、关键信息和核心内容。';
+                handleSendMessage(prompt);
                 return;
               }
 
@@ -460,18 +447,6 @@ export const App = () => {
                 console.log('[Chat] AI 请求获取页面内容');
 
                 if (currentPage) {
-                  const pageContentMsg: AIMessage = {
-                    role: 'assistant',
-                    content: `📄 **当前页面信息**\n\n**标题**: ${currentPage.title}\n**网址**: ${currentPage.url}\n\n**页面内容摘要**:\n${currentPage.excerpt || currentPage.content.substring(0, 500)}...`,
-                    timestamp: Date.now()
-                  };
-
-                  addMessage(pageContentMsg);
-
-                  if (currentConversationId) {
-                    await conversationService.addMessage(currentConversationId, pageContentMsg);
-                  }
-
                   // 🔄 将页面内容反馈给 AI，让它继续回答
                   console.log('[Chat] 将页面内容发送给 AI...');
                   const contextMsg: AIMessage = {
@@ -482,7 +457,7 @@ export const App = () => {
 
                   try {
                     const nextResponse = await aiService.chatWithTools(
-                      [...messagesToSend, pageContentMsg, contextMsg],
+                      [...messagesToSend, contextMsg],
                       agentTools
                     );
 
@@ -710,36 +685,13 @@ export const App = () => {
   };
 
   const handleQuickAction = async (action: string) => {
-    // 特殊处理：显示页面信息
-    if (action === 'summarize' && currentPage) {
-      const pageInfoMessage: AIMessage = {
-        role: 'assistant',
-        content: `📄 **当前页面信息**\n\n` +
-          `**标题**: ${currentPage.title}\n` +
-          `**网址**: ${currentPage.url}\n\n` +
-          `**页面内容摘要**:\n${currentPage.excerpt || currentPage.content.substring(0, 500)}${currentPage.content.length > 500 ? '...' : ''}\n\n` +
-          `💡 如果需要更详细的总结，可以问我："请详细总结这个页面"`,
-        timestamp: Date.now(),
-      };
-
-      addMessage(pageInfoMessage);
-
-      if (currentConversationId) {
-        await conversationService.addMessage(currentConversationId, pageInfoMessage);
-        const updatedConversations = await conversationService.getConversations();
-        setConversations(updatedConversations);
-      }
-
-      return;
-    }
 
     // 其他操作：发送提示给 AI
     let prompt = '';
 
     switch (action) {
       case 'summarize':
-        // 如果没有页面内容，提示用户
-        prompt = '⚠️ 无法获取当前页面内容，请刷新页面后重试。';
+        prompt = '请详细总结当前页面的内容,包括主要观点、关键信息和核心内容。';
         break;
       case 'explain':
         prompt = '请详细解释当前页面的内容，帮助我更好地理解。';
