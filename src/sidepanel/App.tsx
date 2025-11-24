@@ -103,66 +103,11 @@ export const App = () => {
       if (message.type === 'TRIGGER_SUMMARIZE' || message.type === 'SHOW_PAGE_SUMMARY') {
         console.log('[SidePanel] 触发总结操作');
 
-        // 延迟执行，确保组件已完全初始化
+        // 延迟执行,确保组件已完全初始化
         setTimeout(() => {
-          console.log('[SidePanel] 开始显示页面总结');
-
-          // 如果消息中带有页面数据，直接使用
-          const pageData = message.payload;
-
-          if (pageData) {
-            console.log('[SidePanel] 使用消息中的页面数据');
-            const pageInfoMessage: AIMessage = {
-              role: 'assistant',
-              content: `📄 **当前页面信息**\n\n` +
-                `**标题**: ${pageData.title}\n` +
-                `**网址**: ${pageData.url}\n\n` +
-                `**页面内容摘要**:\n${pageData.excerpt || pageData.content.substring(0, 500)}${pageData.content.length > 500 ? '...' : ''}\n\n` +
-                `💡 **你可以问我**：\n` +
-                `• "请详细总结这个页面"\n` +
-                `• "这个页面的重点是什么？"\n` +
-                `• "帮我提取关键信息"`,
-              timestamp: Date.now(),
-            };
-            addMessage(pageInfoMessage);
-          } else {
-            console.log('[SidePanel] 动态获取页面数据');
-            // 动态获取页面内容
-            getPageContent().then((response) => {
-              if (response.success && response.data) {
-                const page = response.data as PageContent;
-                const pageInfoMessage: AIMessage = {
-                  role: 'assistant',
-                  content: `📄 **当前页面信息**\n\n` +
-                    `**标题**: ${page.title}\n` +
-                    `**网址**: ${page.url}\n\n` +
-                    `**页面内容摘要**:\n${page.excerpt || page.content.substring(0, 500)}${page.content.length > 500 ? '...' : ''}\n\n` +
-                    `💡 **你可以问我**：\n` +
-                    `• "请详细总结这个页面"\n` +
-                    `• "这个页面的重点是什么？"\n` +
-                    `• "帮我提取关键信息"`,
-                  timestamp: Date.now(),
-                };
-                addMessage(pageInfoMessage);
-              } else {
-                console.error('[SidePanel] 获取页面内容失败:', response.error);
-                const errorMessage: AIMessage = {
-                  role: 'assistant',
-                  content: `⚠️ 无法获取页面内容\n\n` +
-                    `**可能原因**：\n` +
-                    `• 页面尚未完全加载\n` +
-                    `• 这是浏览器特殊页面（如：chrome://、edge://）\n` +
-                    `• Content Script 未注入\n\n` +
-                    `**解决方法**：\n` +
-                    `1. 刷新页面（按 F5）\n` +
-                    `2. 确保在普通网页上使用\n` +
-                    `3. 重新打开侧边栏`,
-                  timestamp: Date.now(),
-                };
-                addMessage(errorMessage);
-              }
-            });
-          }
+          console.log('[SidePanel] 开始调用AI总结页面');
+          const prompt = '请详细总结当前页面的内容,包括主要观点、关键信息和核心内容。';
+          handleSendMessage(prompt);
         }, 300);
       }
     };
