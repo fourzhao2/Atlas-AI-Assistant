@@ -75,8 +75,8 @@ export interface UserPreference {
 
 // Agent Action Types
 export interface AgentAction {
-  type: 'click' | 'fill' | 'scroll' | 'navigate' | 'extract' | 
-        'select' | 'check' | 'upload' | 'hover' | 'drag' | 'press' | 'wait' | 'submit';
+  type: 'click' | 'fill' | 'scroll' | 'navigate' | 'extract' |
+  'select' | 'check' | 'upload' | 'hover' | 'drag' | 'press' | 'wait' | 'submit';
   selector?: string;
   value?: string | boolean | string[];
   x?: number;
@@ -189,5 +189,75 @@ export interface ExtensionResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+}
+
+// Translation Types
+export type TranslationMode = 'sidebar' | 'inline' | 'hover' | 'selection';
+export type TranslationLanguage = 'zh-CN' | 'en' | 'ja' | 'ko';
+export type DocumentType = 'paper' | 'article' | 'documentation' | 'general';
+
+export interface TranslationConfig {
+  targetLanguage: TranslationLanguage;
+  sourceLanguage?: TranslationLanguage;
+  mode: TranslationMode;
+  preserveTerms: boolean; // 保留专业术语的英文
+  cacheEnabled: boolean; // 启用翻译缓存
+  batchSize: number; // 批量翻译的大小
+  showOriginal: boolean; // 是否显示原文
+}
+
+export interface TranslationContext {
+  title?: string; // 文档标题
+  documentType?: DocumentType; // 文档类型
+  section?: string; // 当前章节
+  field?: string; // 专业领域（如 AI, Biology等）
+  previousContext?: string; // 前文内容（用于上下文理解）
+}
+
+export interface TranslationResult {
+  id: string; // 唯一标识
+  original: string; // 原文
+  translated: string; // 译文
+  terms?: TranslationTerm[]; // 识别的专业术语
+  timestamp: number; // 翻译时间
+  elementId?: string; // 关联的DOM元素ID
+  cached?: boolean; // 是否来自缓存
+}
+
+export interface TranslationTerm {
+  term: string; // 术语原文
+  translation: string; // 术语翻译
+  definition?: string; // 术语定义
+  occurrences: number; // 出现次数
+}
+
+export interface TranslatableElement {
+  id: string; // 元素唯一ID
+  element: HTMLElement; // DOM元素引用
+  selector: string; // CSS选择器
+  type: 'heading' | 'paragraph' | 'list-item' | 'table-cell' | 'caption' | 'quote' | 'text'; // 元素类型
+  content: string; // 待翻译内容
+  priority: number; // 翻译优先级（1-10）
+  translated?: boolean; // 是否已翻译
+  translationId?: string; // 关联的翻译结果ID
+}
+
+export interface TranslationBatch {
+  id: string;
+  elements: TranslatableElement[];
+  status: 'pending' | 'translating' | 'completed' | 'failed';
+  progress: number; // 0-100
+  results: TranslationResult[];
+}
+
+export interface TranslationCache {
+  [key: string]: TranslationResult; // key为内容hash
+}
+
+export interface TranslationStats {
+  totalTranslated: number; // 总翻译数量
+  cacheHits: number; // 缓存命中次数
+  apiCalls: number; // API调用次数
+  estimatedCost: number; // 估算费用
 }
 
