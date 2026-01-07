@@ -45,6 +45,9 @@ export const App = () => {
   // 短期记忆状态
   const [, setMemoryState] = useState<ShortTermMemoryState | null>(null);
   const [tokenUsage, setTokenUsage] = useState<{ usage: number; remaining: number } | null>(null);
+  
+  // 页面内容刷新状态
+  const [isRefreshingPage, setIsRefreshingPage] = useState(false);
 
   // 🎯 对话模式: chat | agent | plan
   const [conversationMode, setConversationMode] = useState<ConversationMode>('chat');
@@ -68,6 +71,80 @@ export const App = () => {
     conversationId: currentConversationId,
     requireApproval: false, // 可以设置为 true 要求用户确认计划
   });
+
+  // 手动刷新页面内容
+  const refreshPageContent = async () => {
+    if (isRefreshingPage) return;
+    
+    setIsRefreshingPage(true);
+    console.log('[SidePanel] 🔄 手动刷新页面内容...');
+    
+    try {
+      const pageResponse = await getPageContent();
+      if (pageResponse.success && pageResponse.data) {
+        setCurrentPage(pageResponse.data as PageContent);
+        console.log('[SidePanel] ✅ 页面内容已刷新:', (pageResponse.data as PageContent).title);
+      }
+    } catch (err) {
+      console.warn('[SidePanel] 页面内容刷新失败:', err);
+    } finally {
+      setIsRefreshingPage(false);
+    }
+  };
+
+  // 🔄 监听标签页切换和页面变化，自动更新页面内容
+  useEffect(() => {
+    // 更新当前页面内容的函数
+    const updatePageContent = async () => {
+      console.log('[SidePanel] 🔄 检测到页面变化，更新页面内容...');
+      try {
+        const pageResponse = await getPageContent();
+        if (pageResponse.success && pageResponse.data) {
+          setCurrentPage(pageResponse.data as PageContent);
+          console.log('[SidePanel] ✅ 页面内容已更新:', (pageResponse.data as PageContent).title);
+        }
+      } catch (err) {
+        console.warn('[SidePanel] 页面内容更新失败:', err);
+      }
+    };
+
+    // 监听标签页激活（用户切换标签页）
+    const handleTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+      console.log('[SidePanel] 📑 标签页切换:', activeInfo.tabId);
+      // 延迟一下确保标签页已完全激活
+      setTimeout(updatePageContent, 100);
+    };
+
+    // 监听标签页更新（页面加载、URL变化）
+    const handleTabUpdated = (
+      tabId: number,
+      changeInfo: chrome.tabs.TabChangeInfo,
+      _tab: chrome.tabs.Tab
+    ) => {
+      // 只在页面加载完成时更新
+      if (changeInfo.status === 'complete') {
+        // 检查是否是当前活动标签页
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+          if (tabs[0]?.id === tabId) {
+            console.log('[SidePanel] 🌐 当前页面加载完成:', changeInfo.url || '(same url)');
+            setTimeout(updatePageContent, 100);
+          }
+        });
+      }
+    };
+
+    // 添加监听器
+    chrome.tabs.onActivated.addListener(handleTabActivated);
+    chrome.tabs.onUpdated.addListener(handleTabUpdated);
+
+    console.log('[SidePanel] ✅ 已注册标签页变化监听器');
+
+    return () => {
+      chrome.tabs.onActivated.removeListener(handleTabActivated);
+      chrome.tabs.onUpdated.removeListener(handleTabUpdated);
+      console.log('[SidePanel] 🔚 已移除标签页变化监听器');
+    };
+  }, [setCurrentPage]);
 
   // Listen for messages from popup or background
   useEffect(() => {
@@ -974,6 +1051,35 @@ export const App = () => {
             )}
           </div>
         </div>
+
+        {/* 当前页面信息 */}
+        {currentPage && (
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-gradient-to-r from-blue-50/50 to-transparent dark:from-blue-900/10 dark:to-transparent">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-blue-500 dark:text-blue-400 font-medium">📄 当前页面</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[180px]" title={currentPage.url}>
+                  {new URL(currentPage.url).hostname}
+                </span>
+              </div>
+              <p className="text-xs text-gray-700 dark:text-gray-300 truncate" title={currentPage.title}>
+                {currentPage.title || '无标题'}
+              </p>
+            </div>
+            <button
+              onClick={refreshPageContent}
+              disabled={isRefreshingPage}
+              className={`p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                isRefreshingPage ? 'animate-spin' : ''
+              }`}
+              title="刷新页面内容"
+            >
+              <svg className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Quick Actions + 模式指示器 */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30">
