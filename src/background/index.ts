@@ -120,6 +120,19 @@ async function handleBackgroundMessage(
         }
         return { success: false, error: 'No active tab' };
 
+      // DeepResearch: 搜索页面并提取搜索结果
+      case 'DEEP_RESEARCH_SEARCH':
+        return await handleDeepResearchSearch(message.payload as {
+          url: string;
+          engine: string;
+          selectors: { result: string; title: string; link: string; snippet: string };
+          maxResults: number;
+        });
+
+      // DeepResearch: 获取指定 URL 的页面内容
+      case 'DEEP_RESEARCH_FETCH_PAGE':
+        return await handleDeepResearchFetchPage(message.payload as { url: string });
+
       default:
         return { success: false, error: `Unknown message type: ${message.type}` };
     }
@@ -219,5 +232,233 @@ try {
   keepAlive();
 } catch (error) {
   console.error('[Background] Failed to start keep alive:', error);
+}
+
+// ========================================
+// DeepResearch 相关处理函数
+// ========================================
+
+/**
+ * 处理 DeepResearch 搜索请求
+ * 在新标签页中打开搜索页面并提取结果
+ */
+async function handleDeepResearchSearch(payload: {
+  url: string;
+  engine: string;
+  selectors: {
+    result: string;
+    title: string;
+    link: string;
+    snippet: string;
+  };
+  maxResults: number;
+}): Promise<ExtensionResponse> {
+  console.log('[Background] 🔍 DeepResearch 搜索:', payload.url);
+
+  try {
+    // 创建新标签页（不激活，在后台执行）
+    const tab = await chrome.tabs.create({
+      url: payload.url,
+      active: false,
+    });
+
+    if (!tab.id) {
+      return { success: false, error: '无法创建标签页' };
+    }
+
+    // 等待页面加载完成
+    await waitForTabLoad(tab.id, 15000);
+
+    // 注入脚本提取搜索结果
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractSearchResults,
+      args: [payload.selectors, payload.maxResults],
+    });
+
+    // 关闭标签页
+    await chrome.tabs.remove(tab.id);
+
+    if (results && results[0] && results[0].result) {
+      console.log('[Background] ✅ 搜索完成，结果数:', results[0].result.length);
+      return { success: true, data: results[0].result };
+    }
+
+    return { success: true, data: [] };
+  } catch (error) {
+    console.error('[Background] ❌ DeepResearch 搜索失败:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '搜索失败',
+    };
+  }
+}
+
+/**
+ * 处理 DeepResearch 页面获取请求
+ * 访问指定 URL 并提取内容
+ */
+async function handleDeepResearchFetchPage(payload: {
+  url: string;
+}): Promise<ExtensionResponse> {
+  console.log('[Background] 📄 DeepResearch 获取页面:', payload.url);
+
+  try {
+    // 创建新标签页
+    const tab = await chrome.tabs.create({
+      url: payload.url,
+      active: false,
+    });
+
+    if (!tab.id) {
+      return { success: false, error: '无法创建标签页' };
+    }
+
+    // 等待页面加载
+    await waitForTabLoad(tab.id, 15000);
+
+    // 注入脚本提取内容
+    const results = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: extractPageContent,
+    });
+
+    // 关闭标签页
+    await chrome.tabs.remove(tab.id);
+
+    if (results && results[0] && results[0].result) {
+      console.log('[Background] ✅ 页面内容获取成功');
+      return { success: true, data: results[0].result };
+    }
+
+    return { success: false, error: '无法提取页面内容' };
+  } catch (error) {
+    console.error('[Background] ❌ DeepResearch 页面获取失败:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : '页面获取失败',
+    };
+  }
+}
+
+/**
+ * 等待标签页加载完成
+ */
+function waitForTabLoad(tabId: number, timeout: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+
+    const checkStatus = async () => {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        if (tab.status === 'complete') {
+          // 额外等待一小段时间确保 JS 执行完成
+          setTimeout(resolve, 500);
+          return;
+        }
+
+        if (Date.now() - startTime > timeout) {
+          reject(new Error('页面加载超时'));
+          return;
+        }
+
+        setTimeout(checkStatus, 200);
+      } catch (error) {
+        reject(error);
+      }
+    };
+
+    checkStatus();
+  });
+}
+
+/**
+ * 提取搜索结果（在页面中执行）
+ */
+function extractSearchResults(
+  selectors: { result: string; title: string; link: string; snippet: string },
+  maxResults: number
+): Array<{ title: string; url: string; snippet: string }> {
+  const results: Array<{ title: string; url: string; snippet: string }> = [];
+  
+  try {
+    const elements = document.querySelectorAll(selectors.result);
+    
+    for (let i = 0; i < Math.min(elements.length, maxResults); i++) {
+      const el = elements[i];
+      
+      // 提取标题
+      const titleEl = el.querySelector(selectors.title);
+      const title = titleEl?.textContent?.trim() || '';
+      
+      // 提取链接
+      const linkEl = el.querySelector(selectors.link) as HTMLAnchorElement;
+      const url = linkEl?.href || '';
+      
+      // 提取摘要
+      const snippetEl = el.querySelector(selectors.snippet);
+      const snippet = snippetEl?.textContent?.trim() || '';
+      
+      if (title && url && url.startsWith('http')) {
+        results.push({ title, url, snippet });
+      }
+    }
+  } catch (error) {
+    console.error('提取搜索结果失败:', error);
+  }
+  
+  return results;
+}
+
+/**
+ * 提取页面内容（在页面中执行）
+ */
+function extractPageContent(): { title: string; url: string; content: string } {
+  try {
+    // 获取标题
+    const title = document.title || '';
+    
+    // 获取 URL
+    const url = window.location.href;
+    
+    // 获取正文内容
+    let content = '';
+    
+    // 优先使用 article 标签
+    const article = document.querySelector('article');
+    if (article) {
+      content = article.innerText;
+    } else {
+      // 尝试 main 标签
+      const main = document.querySelector('main');
+      if (main) {
+        content = main.innerText;
+      } else {
+        // 回退到 body，但过滤一些不需要的元素
+        const body = document.body.cloneNode(true) as HTMLElement;
+        
+        // 移除脚本、样式、导航等
+        const removeSelectors = ['script', 'style', 'nav', 'header', 'footer', 'aside', 'iframe', 'noscript'];
+        removeSelectors.forEach(sel => {
+          body.querySelectorAll(sel).forEach(el => el.remove());
+        });
+        
+        content = body.innerText;
+      }
+    }
+    
+    // 清理内容：移除多余空白
+    content = content
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0)
+      .join('\n')
+      .substring(0, 50000); // 限制长度
+    
+    return { title, url, content };
+  } catch (error) {
+    console.error('提取页面内容失败:', error);
+    return { title: '', url: '', content: '' };
+  }
 }
 

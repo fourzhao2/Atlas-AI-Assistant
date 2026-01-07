@@ -10,11 +10,13 @@ import { getPageContent } from '@/utils/messaging';
 import { measurePerf } from '@/utils/performance';
 import { useAgent } from '@/hooks/useAgent';
 import { usePlanAgent } from '@/hooks/usePlanAgent';
+import { useDeepResearch } from '@/hooks/useDeepResearch';
 import { ChatMessage } from './components/ChatMessage';
 import { ChatInput } from './components/ChatInput';
 import { Sidebar } from './components/Sidebar';
 import { ReActPanel } from './components/ReActPanel';
 import { PlanPanel } from './components/PlanPanel';
+import { DeepResearchPanel } from './components/DeepResearchPanel';
 import type { AIMessage, PageContent, ShortTermMemoryState, ConversationMode, ImageAttachment } from '@/types';
 
 export const App = () => {
@@ -70,6 +72,24 @@ export const App = () => {
     },
     conversationId: currentConversationId,
     requireApproval: false, // 可以设置为 true 要求用户确认计划
+  });
+
+  // 🔬 使用 DeepResearch Hook (深度研究)
+  const deepResearch = useDeepResearch({
+    onMessage: (message) => {
+      addMessage(message);
+      if (currentConversationId) {
+        conversationService.addMessage(currentConversationId, message);
+      }
+    },
+    conversationId: currentConversationId,
+    config: {
+      maxIterations: 3,
+      maxPagesPerIteration: 3,
+      interactiveMode: true,
+      requirePlanApproval: true,
+      requirePageApproval: true,
+    },
   });
 
   // 手动刷新页面内容
@@ -368,6 +388,34 @@ export const App = () => {
         await planAgent.execute(content);
       } catch (error) {
         console.error('[Chat] Plan 模式执行失败:', error);
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
+
+    // 🔬 如果是 Research 模式，使用 DeepResearch Agent 处理
+    if (conversationMode === 'research') {
+      console.log('[Chat] 🔬 使用 DeepResearch 模式处理:', content);
+      setIsSending(true);
+      
+      // 添加用户消息
+      const userMessage: AIMessage = {
+        role: 'user',
+        content,
+        timestamp: Date.now(),
+        images,
+      };
+      addMessage(userMessage);
+      
+      if (currentConversationId) {
+        await conversationService.addMessage(currentConversationId, userMessage);
+      }
+      
+      try {
+        await deepResearch.research(content);
+      } catch (error) {
+        console.error('[Chat] DeepResearch 模式执行失败:', error);
       } finally {
         setIsSending(false);
       }
@@ -1032,6 +1080,17 @@ export const App = () => {
             >
               📋
             </button>
+            <button
+              onClick={() => setConversationMode('research')}
+              className={`px-2 py-1 text-xs font-medium rounded-md transition-all ${
+                conversationMode === 'research'
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+              title="Research 模式 (深度研究)"
+            >
+              🔬
+            </button>
           </div>
 
           {/* Token 使用情况 */}
@@ -1113,9 +1172,11 @@ export const App = () => {
               ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
               : conversationMode === 'agent'
                 ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400'
-                : 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                : conversationMode === 'plan'
+                  ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400'
+                  : 'bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400'
           }`}>
-            {conversationMode === 'chat' ? '对话' : conversationMode === 'agent' ? 'Agent' : 'Plan'}
+            {conversationMode === 'chat' ? '对话' : conversationMode === 'agent' ? 'Agent' : conversationMode === 'plan' ? 'Plan' : 'Research'}
           </div>
         </div>
 
@@ -1129,6 +1190,7 @@ export const App = () => {
                 {conversationMode === 'chat' && '我可以帮您总结网页、回答问题、翻译内容等。'}
                 {conversationMode === 'agent' && '我会边思考边执行，自动完成网页操作任务。'}
                 {conversationMode === 'plan' && '输入复杂任务，我会先制定计划再逐步执行。'}
+                {conversationMode === 'research' && '输入研究问题，我会深度搜索并生成研究报告。'}
               </p>
               
               {/* 模式说明卡片 */}
@@ -1137,20 +1199,24 @@ export const App = () => {
                   ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800'
                   : conversationMode === 'agent'
                     ? 'bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800'
-                    : 'bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800'
+                    : conversationMode === 'plan'
+                      ? 'bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800'
+                      : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-100 dark:border-orange-800'
               }`}>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className="text-lg">
-                    {conversationMode === 'chat' ? '💬' : conversationMode === 'agent' ? '🤖' : '📋'}
+                    {conversationMode === 'chat' ? '💬' : conversationMode === 'agent' ? '🤖' : conversationMode === 'plan' ? '📋' : '🔬'}
                   </span>
                   <span className={`text-xs font-semibold ${
                     conversationMode === 'chat' 
                       ? 'text-blue-700 dark:text-blue-300'
                       : conversationMode === 'agent'
                         ? 'text-green-700 dark:text-green-300'
-                        : 'text-purple-700 dark:text-purple-300'
+                        : conversationMode === 'plan'
+                          ? 'text-purple-700 dark:text-purple-300'
+                          : 'text-orange-700 dark:text-orange-300'
                   }`}>
-                    {conversationMode === 'chat' ? '对话模式' : conversationMode === 'agent' ? 'Agent 模式' : 'Plan 模式'}
+                    {conversationMode === 'chat' ? '对话模式' : conversationMode === 'agent' ? 'Agent 模式' : conversationMode === 'plan' ? 'Plan 模式' : 'Research 模式'}
                   </span>
                 </div>
                 <p className={`text-[10px] ${
@@ -1158,11 +1224,14 @@ export const App = () => {
                     ? 'text-blue-600 dark:text-blue-400'
                     : conversationMode === 'agent'
                       ? 'text-green-600 dark:text-green-400'
-                      : 'text-purple-600 dark:text-purple-400'
+                      : conversationMode === 'plan'
+                        ? 'text-purple-600 dark:text-purple-400'
+                        : 'text-orange-600 dark:text-orange-400'
                 }`}>
                   {conversationMode === 'chat' && '直接与 AI 对话，获取信息和帮助'}
                   {conversationMode === 'agent' && 'ReAct 循环：思考 → 行动 → 观察'}
                   {conversationMode === 'plan' && 'Planner 规划 + Navigator 执行'}
+                  {conversationMode === 'research' && '深度搜索 → 信息聚合 → 报告生成'}
                 </p>
               </div>
             </div>
@@ -1181,6 +1250,26 @@ export const App = () => {
               onApprove={planAgent.approvePlan}
               onStop={planAgent.stop}
               onReset={planAgent.reset}
+            />
+          )}
+
+          {/* DeepResearch Panel */}
+          {conversationMode === 'research' && (deepResearch.plan || deepResearch.isExecuting || deepResearch.report) && (
+            <DeepResearchPanel
+              phase={deepResearch.phase}
+              plan={deepResearch.plan}
+              progress={deepResearch.progress}
+              evaluation={deepResearch.evaluation}
+              report={deepResearch.report}
+              iterations={deepResearch.iterations}
+              currentIteration={deepResearch.currentIteration}
+              allChunks={deepResearch.allChunks}
+              pendingAction={deepResearch.pendingAction}
+              isExecuting={deepResearch.isExecuting}
+              onRespond={deepResearch.respondToAction}
+              onStop={deepResearch.stop}
+              onReset={deepResearch.reset}
+              onExport={deepResearch.exportReport}
             />
           )}
 
@@ -1227,17 +1316,21 @@ export const App = () => {
         {/* Input */}
         <ChatInput
           onSend={handleSendMessage}
-          disabled={isLoading || agent.isExecuting || planAgent.isExecuting || isSending}
+          disabled={isLoading || agent.isExecuting || planAgent.isExecuting || deepResearch.isExecuting || isSending}
           placeholder={
-            planAgent.isExecuting
-              ? `📋 Plan 模式执行中 (${planAgent.progress.percentage}%)...`
-              : agent.isExecuting
-                ? '🤖 ReAct Agent 正在执行...'
-                : isLoading
-                  ? '正在思考...'
-                  : conversationMode === 'plan'
-                    ? '输入任务，AI 会制定计划并执行...'
-                    : '输入消息...'
+            deepResearch.isExecuting
+              ? `🔬 DeepResearch 进行中 (${deepResearch.phase})...`
+              : planAgent.isExecuting
+                ? `📋 Plan 模式执行中 (${planAgent.progress.percentage}%)...`
+                : agent.isExecuting
+                  ? '🤖 ReAct Agent 正在执行...'
+                  : isLoading
+                    ? '正在思考...'
+                    : conversationMode === 'research'
+                      ? '输入研究问题，我会深度搜索并生成报告...'
+                      : conversationMode === 'plan'
+                        ? '输入任务，AI 会制定计划并执行...'
+                        : '输入消息...'
           }
         />
       </div>

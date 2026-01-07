@@ -80,7 +80,7 @@ export interface AIToolCallRequest {
 }
 
 // 对话模式类型
-export type ConversationMode = 'chat' | 'agent' | 'plan';
+export type ConversationMode = 'chat' | 'agent' | 'plan' | 'research';
 
 // Agent 模式配置
 export interface AgentModeConfig {
@@ -444,7 +444,9 @@ export type MessageType =
   | 'ANALYZE_HISTORY'
   | 'GET_INTERACTIVE_DOM'
   | 'EXECUTE_AGENT_TASK'
-  | 'STOP_AGENT_EXECUTION';
+  | 'STOP_AGENT_EXECUTION'
+  | 'DEEP_RESEARCH_SEARCH'
+  | 'DEEP_RESEARCH_FETCH_PAGE';
 
 export interface ExtensionMessage<T = unknown> {
   type: MessageType;
