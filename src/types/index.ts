@@ -110,6 +110,129 @@ export interface ReActAgentResult {
   error?: string;
 }
 
+// ========================================
+// Plan Mode 类型定义 (Planner + Navigator)
+// ========================================
+
+/**
+ * Plan 模式的阶段
+ */
+export type PlanPhase = 
+  | 'idle'           // 空闲
+  | 'planning'       // Planner 正在规划
+  | 'reviewing'      // 用户审核计划
+  | 'executing'      // Navigator 正在执行
+  | 'evaluating'     // Planner 评估执行结果
+  | 'replanning'     // 重新规划
+  | 'completed'      // 任务完成
+  | 'error';         // 错误
+
+/**
+ * 计划步骤状态
+ */
+export type PlanStepStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
+
+/**
+ * 单个计划步骤
+ */
+export interface PlanStep {
+  id: string;
+  index: number;              // 步骤序号
+  description: string;        // 人类可读的步骤描述
+  action: AgentAction;        // 具体的操作
+  status: PlanStepStatus;
+  result?: string;            // 执行结果
+  error?: string;             // 错误信息
+  timestamp?: number;         // 执行时间
+  retryCount?: number;        // 重试次数
+}
+
+/**
+ * 完整的任务计划
+ */
+export interface TaskPlanFull {
+  id: string;
+  instruction: string;        // 原始用户指令
+  goal: string;               // Planner 理解的目标
+  steps: PlanStep[];          // 计划步骤
+  currentStepIndex: number;   // 当前执行到的步骤
+  status: 'draft' | 'approved' | 'executing' | 'paused' | 'completed' | 'failed';
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  totalRetries: number;       // 总重试次数
+  maxRetries: number;         // 最大重试次数
+}
+
+/**
+ * Planner Agent 配置
+ */
+export interface PlannerConfig {
+  maxSteps: number;           // 单个计划的最大步骤数
+  maxRetries: number;         // 最大重试次数
+  requireApproval: boolean;   // 是否需要用户确认计划
+  verbose: boolean;           // 是否输出详细日志
+}
+
+/**
+ * Navigator Agent 配置
+ */
+export interface NavigatorConfig {
+  stepTimeout: number;        // 单步超时时间（毫秒）
+  waitAfterAction: number;    // 操作后等待时间
+  maxElementsToAnalyze: number; // 分析的最大元素数
+}
+
+/**
+ * Plan Mode 完整状态
+ */
+export interface PlanModeState {
+  mode: 'plan';
+  phase: PlanPhase;
+  plan: TaskPlanFull | null;
+  plannerThinking: string;    // Planner 的思考过程
+  navigatorStatus: string;    // Navigator 的当前状态
+  messages: AIMessage[];      // 消息历史
+  isRunning: boolean;
+  error?: string;
+}
+
+/**
+ * Plan Mode 执行结果
+ */
+export interface PlanModeResult {
+  success: boolean;
+  plan: TaskPlanFull | null;
+  summary?: string;           // 任务执行总结
+  data?: unknown;             // 提取的数据（如有）
+  error?: string;
+}
+
+/**
+ * Planner 的响应
+ */
+export interface PlannerResponse {
+  goal: string;               // 理解的目标
+  reasoning: string;          // 推理过程
+  steps: Array<{
+    description: string;
+    action: AgentAction;
+  }>;
+  confidence: number;         // 置信度 0-1
+}
+
+/**
+ * Navigator 的执行反馈
+ */
+export interface NavigatorFeedback {
+  stepId: string;
+  success: boolean;
+  result: string;
+  domChanged: boolean;        // DOM 是否发生变化
+  newElements?: string[];     // 新出现的重要元素
+  error?: string;
+}
+
 // Page Content Types
 export interface PageContent {
   title: string;
