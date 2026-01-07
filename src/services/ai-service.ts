@@ -1,4 +1,4 @@
-import type { AIProvider, AIMessage, AIProviderType, AITool, AIToolResponse } from '@/types';
+import type { AIProvider, AIMessage, AIProviderType, AITool, AIToolResponse, AIToolCallRequest } from '@/types';
 import { OpenAIProvider } from './ai-providers/openai';
 import { AnthropicProvider } from './ai-providers/anthropic';
 import { GeminiProvider } from './ai-providers/gemini';
@@ -119,6 +119,50 @@ class AIService {
     }
 
     return provider.chatWithTools(messages, tools);
+  }
+
+  /**
+   * ReAct Agent 模式使用的 chat with tools
+   * 返回原始的 tool_calls 格式，包含 id 用于后续关联 tool 消息
+   */
+  async chatWithToolsForAgent(
+    messages: AIMessage[],
+    tools: AITool[],
+    providerType?: AIProviderType
+  ): Promise<{ content: string; toolCalls?: AIToolCallRequest[] }> {
+    const provider = await this.getProvider(providerType);
+    
+    // 目前只有 OpenAI 支持这个方法
+    if (provider.name === 'openai') {
+      const openaiProvider = provider as import('./ai-providers/openai').OpenAIProvider;
+      return openaiProvider.chatWithToolsRaw(messages, tools);
+    }
+
+    // 其他提供商回退到普通的 chatWithTools
+    if (!provider.chatWithTools) {
+      throw new Error(`Provider ${provider.name} does not support tool calling`);
+    }
+
+    const response = await provider.chatWithTools(messages, tools);
+    
+    // 转换格式
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      return {
+        content: response.content,
+        toolCalls: response.toolCalls.map((tc, index) => ({
+          id: `call_${Date.now()}_${index}`,
+          type: 'function' as const,
+          function: {
+            name: tc.name,
+            arguments: JSON.stringify(tc.arguments),
+          },
+        })),
+      };
+    }
+
+    return {
+      content: response.content,
+    };
   }
 
   getAvailableProviders(): AIProviderType[] {

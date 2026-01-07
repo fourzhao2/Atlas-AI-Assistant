@@ -1,4 +1,24 @@
-import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse } from '@/types';
+import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse, AIToolCallRequest } from '@/types';
+
+/**
+ * 将 AIMessage 转换为 OpenAI API 格式
+ */
+function formatMessageForOpenAI(msg: AIMessage): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    role: msg.role,
+    content: msg.content,
+  };
+
+  // tool role 需要额外字段
+  if (msg.role === 'tool') {
+    base.tool_call_id = msg.tool_call_id || '';
+    if (msg.name) {
+      base.name = msg.name;
+    }
+  }
+
+  return base;
+}
 
 export class OpenAIProvider implements AIProvider {
   name = 'openai' as const;
@@ -23,7 +43,7 @@ export class OpenAIProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: this.config.model || 'gpt-4o-mini',
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        messages: messages.map(formatMessageForOpenAI),
         stream: true,
       }),
     });
@@ -91,7 +111,7 @@ export class OpenAIProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: this.config.model || 'gpt-4o-mini',
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        messages: messages.map(formatMessageForOpenAI),
         tools: tools.map(t => ({
           type: 'function',
           function: {
@@ -118,6 +138,63 @@ export class OpenAIProvider implements AIProvider {
         toolCalls: choice.message.tool_calls.map((tc: any) => ({
           name: tc.function.name,
           arguments: JSON.parse(tc.function.arguments),
+        })),
+      };
+    }
+
+    return {
+      content: choice?.message?.content || '',
+    };
+  }
+
+  /**
+   * 支持 ReAct Agent 模式的 chat with tools
+   * 返回原始的 tool_calls 格式，包含 id 用于后续关联
+   */
+  async chatWithToolsRaw(
+    messages: AIMessage[], 
+    tools: AITool[]
+  ): Promise<{ content: string; toolCalls?: AIToolCallRequest[] }> {
+    const baseUrl = this.config.baseUrl || 'https://api.openai.com';
+    const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.config.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.config.model || 'gpt-4o-mini',
+        messages: messages.map(formatMessageForOpenAI),
+        tools: tools.length > 0 ? tools.map(t => ({
+          type: 'function',
+          function: {
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+          },
+        })) : undefined,
+        tool_choice: tools.length > 0 ? 'auto' : undefined,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error?.message || 'OpenAI API request failed');
+    }
+
+    const data = await response.json();
+    const choice = data.choices?.[0];
+    
+    if (choice?.message?.tool_calls) {
+      return {
+        content: choice.message.content || '',
+        toolCalls: choice.message.tool_calls.map((tc: any) => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: {
+            name: tc.function.name,
+            arguments: tc.function.arguments, // 保持为字符串
+          },
         })),
       };
     }

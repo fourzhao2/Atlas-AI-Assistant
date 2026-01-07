@@ -1,10 +1,44 @@
 // AI Provider Types
 export type AIProviderType = 'openai' | 'anthropic' | 'gemini';
 
+// 消息角色类型 - 支持 tool role
+export type AIMessageRole = 'user' | 'assistant' | 'system' | 'tool';
+
 export interface AIMessage {
-  role: 'user' | 'assistant' | 'system';
+  role: AIMessageRole;
   content: string;
   timestamp?: number;
+  // Tool 相关字段
+  tool_call_id?: string;      // tool role 消息需要关联的 tool_call id
+  name?: string;              // tool role 消息的工具名称
+}
+
+// Assistant 消息可能包含 tool_calls
+export interface AIAssistantMessage extends AIMessage {
+  role: 'assistant';
+  tool_calls?: AIToolCallRequest[];
+}
+
+// Tool Call 请求（AI 返回的）
+export interface AIToolCallRequest {
+  id: string;                 // 唯一 ID，用于关联 tool 响应
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;        // JSON 字符串
+  };
+}
+
+// 对话模式类型
+export type ConversationMode = 'chat' | 'agent' | 'plan';
+
+// Agent 模式配置
+export interface AgentModeConfig {
+  maxIterations: number;      // 最大循环次数，防止无限循环
+  maxTokensPerIteration: number; // 每次迭代的最大 token
+  tools: AITool[];            // 可用工具列表
+  enableStreaming: boolean;   // 是否启用流式输出
+  verbose: boolean;           // 是否输出详细日志
 }
 
 export interface AIProviderConfig {
@@ -38,6 +72,42 @@ export interface AIToolResponse {
 export interface AIToolCall {
   name: string;
   arguments: Record<string, unknown>;
+}
+
+// ReAct Agent 相关类型
+export type ReActPhase = 'idle' | 'thinking' | 'acting' | 'observing' | 'completed' | 'error';
+
+export interface ReActStep {
+  id: string;
+  phase: ReActPhase;
+  thought?: string;           // 思考内容
+  action?: {                  // 行动
+    tool: string;
+    input: Record<string, unknown>;
+  };
+  observation?: string;       // 观察结果（工具返回）
+  timestamp: number;
+}
+
+export interface ReActAgentState {
+  mode: 'agent';
+  phase: ReActPhase;
+  steps: ReActStep[];
+  messages: AIMessage[];      // 完整消息历史（包括 tool messages）
+  currentIteration: number;
+  maxIterations: number;
+  totalTokens: number;
+  isRunning: boolean;
+  error?: string;
+}
+
+export interface ReActAgentResult {
+  success: boolean;
+  finalAnswer?: string;
+  steps: ReActStep[];
+  totalIterations: number;
+  totalTokens: number;
+  error?: string;
 }
 
 // Page Content Types
