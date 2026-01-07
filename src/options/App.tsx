@@ -16,6 +16,8 @@ export const App: React.FC = () => {
     openai: null,
     anthropic: null,
     gemini: null,
+    deepseek: null,
+    qwen: null,
   });
 
   const [editingProvider, setEditingProvider] = useState<AIProviderType | null>(null);
@@ -92,7 +94,7 @@ export const App: React.FC = () => {
       
       // 如果删除的是当前默认提供商，自动切换到其他可用的
       if (preferences.defaultProvider === provider) {
-        const otherProviders: AIProviderType[] = ['openai', 'anthropic', 'gemini'];
+        const otherProviders: AIProviderType[] = ['openai', 'anthropic', 'gemini', 'deepseek', 'qwen'];
         const availableProvider = otherProviders.find(p => 
           p !== provider && providers[p] !== null
         );
@@ -141,6 +143,12 @@ export const App: React.FC = () => {
       if (providerConfigs.gemini) {
         await storage.setProviderConfig('gemini', providerConfigs.gemini);
       }
+      if (providerConfigs.deepseek) {
+        await storage.setProviderConfig('deepseek', providerConfigs.deepseek);
+      }
+      if (providerConfigs.qwen) {
+        await storage.setProviderConfig('qwen', providerConfigs.qwen);
+      }
       await storage.setPreferences(currentPrefs);
       
       // 🔧 重要：清除 currentConversationId，避免指向不存在的对话
@@ -157,6 +165,9 @@ export const App: React.FC = () => {
       case 'openai': return 'OpenAI GPT';
       case 'anthropic': return 'Anthropic Claude';
       case 'gemini': return 'Google Gemini';
+      case 'deepseek': return 'DeepSeek';
+      case 'qwen': return '通义千问 (Qwen)';
+      default: return provider;
     }
   };
 
@@ -165,6 +176,31 @@ export const App: React.FC = () => {
       case 'openai': return 'gpt-4-turbo-preview';
       case 'anthropic': return 'claude-3-5-sonnet-20241022';
       case 'gemini': return 'gemini-pro';
+      case 'deepseek': return 'deepseek-chat';
+      case 'qwen': return 'qwen-plus';
+      default: return '';
+    }
+  };
+
+  const getDefaultBaseUrl = (provider: AIProviderType): string => {
+    switch (provider) {
+      case 'openai': return 'https://api.openai.com';
+      case 'anthropic': return 'https://api.anthropic.com';
+      case 'gemini': return '';
+      case 'deepseek': return 'https://api.deepseek.com';
+      case 'qwen': return 'https://dashscope.aliyuncs.com/compatible-mode';
+      default: return '';
+    }
+  };
+
+  const getProviderDescription = (provider: AIProviderType): string => {
+    switch (provider) {
+      case 'openai': return '支持 GPT-4, GPT-4o 等模型';
+      case 'anthropic': return '支持 Claude 3.5 Sonnet 等模型';
+      case 'gemini': return '支持 Gemini Pro 等模型';
+      case 'deepseek': return '国内 AI，支持 deepseek-chat, deepseek-reasoner 等模型';
+      case 'qwen': return '阿里云，支持 qwen-plus, qwen-max, qwen-vl-max (多模态) 等模型';
+      default: return '';
     }
   };
 
@@ -253,6 +289,12 @@ export const App: React.FC = () => {
                     <option value="gemini" disabled={!providers.gemini}>
                       Google Gemini {!providers.gemini && '(未配置)'}
                     </option>
+                    <option value="deepseek" disabled={!providers.deepseek}>
+                      DeepSeek {!providers.deepseek && '(未配置)'}
+                    </option>
+                    <option value="qwen" disabled={!providers.qwen}>
+                      通义千问 (Qwen) {!providers.qwen && '(未配置)'}
+                    </option>
                   </select>
                   {!providers[preferences.defaultProvider] && (
                     <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
@@ -326,12 +368,140 @@ export const App: React.FC = () => {
         {/* AI Providers */}
         {activeTab === 'providers' && (
           <div className="space-y-6">
+            {/* 国内 AI 服务分组 */}
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
+                🇨🇳 国内 AI 服务（推荐）
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                国内直连，无需代理，速度快
+              </p>
+            </div>
+            
+            {(['deepseek', 'qwen'] as AIProviderType[]).map((provider) => (
+              <div key={provider} className="card border-2 border-blue-200 dark:border-blue-800">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                      {getProviderName(provider)}
+                    </h2>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {getProviderDescription(provider)}
+                    </p>
+                  </div>
+                  {providers[provider] && (
+                    <span className="text-sm text-green-600 dark:text-green-400">
+                      ✓ 已配置
+                    </span>
+                  )}
+                </div>
+
+                {editingProvider === provider ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                        API Key *
+                      </label>
+                      <input
+                        type="password"
+                        value={tempConfig.apiKey || ''}
+                        onChange={(e) => setTempConfig({ ...tempConfig, apiKey: e.target.value })}
+                        placeholder={provider === 'deepseek' ? 'sk-...' : 'sk-...'}
+                        className="input-field"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        {provider === 'deepseek' && '获取地址: https://platform.deepseek.com/'}
+                        {provider === 'qwen' && '获取地址: https://dashscope.console.aliyun.com/'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                        模型（可选）
+                      </label>
+                      <input
+                        type="text"
+                        value={tempConfig.model || ''}
+                        onChange={(e) => setTempConfig({ ...tempConfig, model: e.target.value })}
+                        placeholder={getDefaultModel(provider)}
+                        className="input-field"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        留空使用默认模型：{getDefaultModel(provider)}
+                        {provider === 'qwen' && ' | 多模态请使用: qwen-vl-max'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2 text-gray-700 dark:text-gray-300">
+                        API 地址（可选）
+                      </label>
+                      <input
+                        type="text"
+                        value={tempConfig.baseUrl || ''}
+                        onChange={(e) => setTempConfig({ ...tempConfig, baseUrl: e.target.value })}
+                        placeholder={getDefaultBaseUrl(provider)}
+                        className="input-field"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        留空使用默认地址：{getDefaultBaseUrl(provider)}
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button onClick={handleSaveProvider} className="btn-primary">
+                        保存
+                      </button>
+                      <button
+                        onClick={() => setEditingProvider(null)}
+                        className="btn-secondary"
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleEditProvider(provider)}
+                      className="btn-primary"
+                    >
+                      {providers[provider] ? '编辑' : '配置'}
+                    </button>
+                    {providers[provider] && (
+                      <button
+                        onClick={() => handleDeleteProvider(provider)}
+                        className="btn-secondary text-red-600 dark:text-red-400"
+                      >
+                        删除
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* 海外 AI 服务分组 */}
+            <div className="mb-4 mt-8">
+              <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2 flex items-center gap-2">
+                🌍 海外 AI 服务
+              </h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                可能需要代理访问
+              </p>
+            </div>
+
             {(['openai', 'anthropic', 'gemini'] as AIProviderType[]).map((provider) => (
               <div key={provider} className="card">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
-                    {getProviderName(provider)}
-                  </h2>
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                      {getProviderName(provider)}
+                    </h2>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {getProviderDescription(provider)}
+                    </p>
+                  </div>
                   {providers[provider] && (
                     <span className="text-sm text-green-600 dark:text-green-400">
                       ✓ 已配置
@@ -378,7 +548,7 @@ export const App: React.FC = () => {
                         type="text"
                         value={tempConfig.baseUrl || ''}
                         onChange={(e) => setTempConfig({ ...tempConfig, baseUrl: e.target.value })}
-                        placeholder={provider === 'openai' ? 'https://api.openai.com' : ''}
+                        placeholder={getDefaultBaseUrl(provider)}
                         className="input-field"
                       />
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">

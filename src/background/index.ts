@@ -136,10 +136,10 @@ async function handleBackgroundMessage(
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local') {
     // Refresh AI providers if configs changed
-    if (changes.provider_openai || changes.provider_anthropic || changes.provider_gemini) {
+    if (changes.provider_openai || changes.provider_anthropic || changes.provider_gemini || changes.provider_deepseek || changes.provider_qwen) {
       Object.keys(changes).forEach(key => {
         if (key.startsWith('provider_')) {
-          const provider = key.replace('provider_', '') as 'openai' | 'anthropic' | 'gemini';
+          const provider = key.replace('provider_', '') as 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'qwen';
           aiService.refreshProvider(provider);
         }
       });

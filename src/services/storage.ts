@@ -20,11 +20,19 @@ class StorageService {
   }
 
   async getAllProviderConfigs(): Promise<Record<AIProviderType, AIProviderConfig | null>> {
-    const result = await chrome.storage.local.get(['provider_openai', 'provider_anthropic', 'provider_gemini']);
+    const result = await chrome.storage.local.get([
+      'provider_openai', 
+      'provider_anthropic', 
+      'provider_gemini',
+      'provider_deepseek',
+      'provider_qwen'
+    ]);
     return {
       openai: result.provider_openai || null,
       anthropic: result.provider_anthropic || null,
       gemini: result.provider_gemini || null,
+      deepseek: result.provider_deepseek || null,
+      qwen: result.provider_qwen || null,
     };
   }
 

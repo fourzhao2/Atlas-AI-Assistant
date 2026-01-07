@@ -1,5 +1,5 @@
 // AI Provider Types
-export type AIProviderType = 'openai' | 'anthropic' | 'gemini';
+export type AIProviderType = 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'qwen';
 
 // 消息角色类型 - 支持 tool role
 export type AIMessageRole = 'user' | 'assistant' | 'system' | 'tool';

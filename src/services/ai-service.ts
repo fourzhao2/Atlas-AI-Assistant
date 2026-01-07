@@ -2,6 +2,8 @@ import type { AIProvider, AIMessage, AIProviderType, AITool, AIToolResponse, AIT
 import { OpenAIProvider } from './ai-providers/openai';
 import { AnthropicProvider } from './ai-providers/anthropic';
 import { GeminiProvider } from './ai-providers/gemini';
+import { DeepSeekProvider } from './ai-providers/deepseek';
+import { QwenProvider } from './ai-providers/qwen';
 import { storage } from './storage';
 
 class AIService {
@@ -41,6 +43,24 @@ class AIService {
           console.error('[AIService] Gemini provider 初始化失败:', error);
         }
       }
+      if (configs.deepseek) {
+        try {
+          console.log('[AIService] 初始化 DeepSeek provider');
+          this.providers.set('deepseek', new DeepSeekProvider(configs.deepseek));
+        } catch (error) {
+          console.error('[AIService] DeepSeek provider 初始化失败:', error);
+        }
+      }
+      if (configs.qwen) {
+        try {
+          console.log('[AIService] 初始化 Qwen provider');
+          console.log('[AIService] Qwen baseUrl:', configs.qwen.baseUrl);
+          console.log('[AIService] Qwen model:', configs.qwen.model);
+          this.providers.set('qwen', new QwenProvider(configs.qwen));
+        } catch (error) {
+          console.error('[AIService] Qwen provider 初始化失败:', error);
+        }
+      }
       
       console.log('[AIService] 初始化完成，可用提供商:', Array.from(this.providers.keys()));
     } catch (error) {
@@ -66,6 +86,12 @@ class AIService {
           break;
         case 'gemini':
           this.providers.set('gemini', new GeminiProvider(config));
+          break;
+        case 'deepseek':
+          this.providers.set('deepseek', new DeepSeekProvider(config));
+          break;
+        case 'qwen':
+          this.providers.set('qwen', new QwenProvider(config));
           break;
       }
     } catch (error) {
