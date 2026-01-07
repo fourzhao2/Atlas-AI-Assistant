@@ -14,6 +14,9 @@ import type {
 
 /**
  * 搜索引擎配置
+ * 
+ * 注意：搜索引擎的 HTML 结构经常变化，这里提供多个备用选择器
+ * 选择器按优先级排序，用逗号分隔，CSS 会自动匹配第一个有效的
  */
 const SEARCH_ENGINES: Record<SearchEngine, {
   name: string;
@@ -26,26 +29,33 @@ const SEARCH_ENGINES: Record<SearchEngine, {
   google: {
     name: 'Google',
     searchUrl: (query) => `https://www.google.com/search?q=${encodeURIComponent(query)}`,
-    resultSelector: 'div.g',
-    titleSelector: 'h3',
-    linkSelector: 'a[href^="http"]',
-    snippetSelector: 'div[data-sncf], div.VwiC3b',
+    // Google 搜索结果容器 - 多个备用选择器
+    resultSelector: 'div.g, div[data-hveid], div.hlcw0c',
+    // 标题选择器 - h3 是最常见的
+    titleSelector: 'h3, [role="heading"]',
+    // 链接选择器 - 优先匹配 http 开头的链接
+    linkSelector: 'a[href^="http"]:not([href*="google.com/search"]), a[data-ved]',
+    // 摘要选择器 - Google 经常更改这个
+    snippetSelector: 'div[data-sncf], div.VwiC3b, div[style*="-webkit-line-clamp"], span.aCOpRe',
   },
   bing: {
     name: 'Bing',
     searchUrl: (query) => `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
-    resultSelector: 'li.b_algo',
-    titleSelector: 'h2 a',
-    linkSelector: 'h2 a',
-    snippetSelector: 'p, .b_caption p',
+    // Bing 搜索结果容器
+    resultSelector: 'li.b_algo, .b_algo',
+    // 标题通常在 h2 > a 中
+    titleSelector: 'h2 a, h2',
+    linkSelector: 'h2 a, a.tilk',
+    snippetSelector: 'p, .b_caption p, .b_algoSlug',
   },
   baidu: {
     name: '百度',
     searchUrl: (query) => `https://www.baidu.com/s?wd=${encodeURIComponent(query)}`,
-    resultSelector: 'div.result, div.c-container',
-    titleSelector: 'h3 a',
-    linkSelector: 'h3 a',
-    snippetSelector: '.c-abstract, .content-right_8Zs40',
+    // 百度搜索结果容器
+    resultSelector: 'div.result, div.c-container, div.result-op',
+    titleSelector: 'h3 a, .c-title a, .t a',
+    linkSelector: 'h3 a, .c-title a, .t a',
+    snippetSelector: '.c-abstract, .content-right_8Zs40, .c-span-last, .c-color-text',
   },
 };
 
@@ -156,6 +166,16 @@ class WebSearcher {
 
     // 方案: 通过消息发送到 background，让 background 打开标签页并提取结果
     return new Promise((resolve, reject) => {
+      let settled = false;
+      
+      // 超时处理 - 使用标志避免竞态条件
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('搜索超时'));
+        }
+      }, 30000);
+      
       // 发送消息给 background script
       chrome.runtime.sendMessage(
         {
@@ -173,6 +193,11 @@ class WebSearcher {
           },
         },
         (response) => {
+          // 如果已经超时处理过，忽略此回调
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
             return;
@@ -202,11 +227,6 @@ class WebSearcher {
           }
         }
       );
-
-      // 超时处理
-      setTimeout(() => {
-        reject(new Error('搜索超时'));
-      }, 30000);
     });
   }
 

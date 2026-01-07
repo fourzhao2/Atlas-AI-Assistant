@@ -626,12 +626,28 @@ class DeepResearchAgent {
    */
   private async fetchPageContent(url: string): Promise<string> {
     return new Promise((resolve, reject) => {
+      let settled = false;
+      
+      // 超时处理 - 使用标志避免竞态条件
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          console.warn('[DeepResearch] 页面获取超时:', url);
+          resolve('');
+        }
+      }, 15000);
+      
       chrome.runtime.sendMessage(
         {
           type: 'DEEP_RESEARCH_FETCH_PAGE',
           payload: { url },
         },
         (response) => {
+          // 如果已经超时处理过，忽略此回调
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
             return;
@@ -646,11 +662,6 @@ class DeepResearchAgent {
           }
         }
       );
-
-      // 超时处理
-      setTimeout(() => {
-        resolve(''); // 超时时返回空内容
-      }, 15000);
     });
   }
 }

@@ -343,28 +343,47 @@ async function handleDeepResearchFetchPage(payload: {
 
 /**
  * 等待标签页加载完成
+ * 
+ * @param tabId 标签页 ID
+ * @param timeout 超时时间（毫秒）
+ * @param extraWait 页面加载完成后的额外等待时间，用于等待动态内容渲染
  */
-function waitForTabLoad(tabId: number, timeout: number): Promise<void> {
+function waitForTabLoad(tabId: number, timeout: number, extraWait: number = 1500): Promise<void> {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
+    let settled = false;
 
     const checkStatus = async () => {
+      if (settled) return;
+      
       try {
         const tab = await chrome.tabs.get(tabId);
         if (tab.status === 'complete') {
-          // 额外等待一小段时间确保 JS 执行完成
-          setTimeout(resolve, 500);
+          // 额外等待一段时间确保动态内容加载完成
+          // 对于 SPA 和动态渲染页面，500ms 往往不够
+          setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              resolve();
+            }
+          }, extraWait);
           return;
         }
 
         if (Date.now() - startTime > timeout) {
-          reject(new Error('页面加载超时'));
+          if (!settled) {
+            settled = true;
+            reject(new Error('页面加载超时'));
+          }
           return;
         }
 
         setTimeout(checkStatus, 200);
       } catch (error) {
-        reject(error);
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
       }
     };
 
@@ -374,33 +393,70 @@ function waitForTabLoad(tabId: number, timeout: number): Promise<void> {
 
 /**
  * 提取搜索结果（在页面中执行）
+ * 
+ * 增强版：支持多个备用选择器，提高兼容性
  */
 function extractSearchResults(
   selectors: { result: string; title: string; link: string; snippet: string },
   maxResults: number
 ): Array<{ title: string; url: string; snippet: string }> {
   const results: Array<{ title: string; url: string; snippet: string }> = [];
+  const seenUrls = new Set<string>();
   
   try {
     const elements = document.querySelectorAll(selectors.result);
     
-    for (let i = 0; i < Math.min(elements.length, maxResults); i++) {
+    for (let i = 0; i < elements.length && results.length < maxResults; i++) {
       const el = elements[i];
       
-      // 提取标题
-      const titleEl = el.querySelector(selectors.title);
-      const title = titleEl?.textContent?.trim() || '';
+      // 提取标题 - 尝试多个选择器
+      let title = '';
+      const titleSelectors = selectors.title.split(',').map(s => s.trim());
+      for (const sel of titleSelectors) {
+        const titleEl = el.querySelector(sel);
+        if (titleEl?.textContent?.trim()) {
+          title = titleEl.textContent.trim();
+          break;
+        }
+      }
       
-      // 提取链接
-      const linkEl = el.querySelector(selectors.link) as HTMLAnchorElement;
-      const url = linkEl?.href || '';
+      // 提取链接 - 尝试多个选择器
+      let url = '';
+      const linkSelectors = selectors.link.split(',').map(s => s.trim());
+      for (const sel of linkSelectors) {
+        const linkEl = el.querySelector(sel) as HTMLAnchorElement;
+        if (linkEl?.href && linkEl.href.startsWith('http')) {
+          url = linkEl.href;
+          break;
+        }
+      }
       
-      // 提取摘要
-      const snippetEl = el.querySelector(selectors.snippet);
-      const snippet = snippetEl?.textContent?.trim() || '';
+      // 提取摘要 - 尝试多个选择器
+      let snippet = '';
+      const snippetSelectors = selectors.snippet.split(',').map(s => s.trim());
+      for (const sel of snippetSelectors) {
+        const snippetEl = el.querySelector(sel);
+        if (snippetEl?.textContent?.trim()) {
+          snippet = snippetEl.textContent.trim();
+          break;
+        }
+      }
       
-      if (title && url && url.startsWith('http')) {
-        results.push({ title, url, snippet });
+      // 验证并去重
+      if (title && url && url.startsWith('http') && !seenUrls.has(url)) {
+        // 排除搜索引擎自身的链接
+        const excludePatterns = [
+          'google.com/search',
+          'bing.com/search',
+          'baidu.com/s?',
+          'google.com/url',
+        ];
+        
+        const isExcluded = excludePatterns.some(pattern => url.includes(pattern));
+        if (!isExcluded) {
+          seenUrls.add(url);
+          results.push({ title, url, snippet });
+        }
       }
     }
   } catch (error) {
