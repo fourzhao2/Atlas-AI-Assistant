@@ -1,12 +1,25 @@
-import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse, AIToolCallRequest } from '@/types';
+import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse, AIToolCallRequest, ImageAttachment } from '@/types';
+
+/**
+ * 将图片附件转换为 OpenAI Vision 格式
+ */
+function formatImageForOpenAI(image: ImageAttachment): Record<string, unknown> {
+  return {
+    type: 'image_url',
+    image_url: {
+      url: `data:${image.mediaType};base64,${image.data}`,
+      detail: 'auto', // 可以是 'low', 'high', 'auto'
+    },
+  };
+}
 
 /**
  * 将 AIMessage 转换为 OpenAI API 格式
+ * 支持多模态消息（文本 + 图片）
  */
 function formatMessageForOpenAI(msg: AIMessage): Record<string, unknown> {
   const base: Record<string, unknown> = {
     role: msg.role,
-    content: msg.content,
   };
 
   // tool role 需要额外字段
@@ -15,6 +28,32 @@ function formatMessageForOpenAI(msg: AIMessage): Record<string, unknown> {
     if (msg.name) {
       base.name = msg.name;
     }
+    base.content = msg.content;
+    return base;
+  }
+
+  // 🖼️ 检查是否有图片附件 - 多模态消息
+  if (msg.images && msg.images.length > 0) {
+    // 多模态格式：content 是数组
+    const contentParts: Record<string, unknown>[] = [];
+    
+    // 添加文本部分（如果有）
+    if (msg.content) {
+      contentParts.push({
+        type: 'text',
+        text: msg.content,
+      });
+    }
+    
+    // 添加图片部分
+    for (const image of msg.images) {
+      contentParts.push(formatImageForOpenAI(image));
+    }
+    
+    base.content = contentParts;
+  } else {
+    // 普通文本消息
+    base.content = msg.content;
   }
 
   return base;

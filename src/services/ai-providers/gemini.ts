@@ -1,4 +1,40 @@
-import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse } from '@/types';
+import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse, ImageAttachment } from '@/types';
+
+/**
+ * 将图片附件转换为 Gemini 格式
+ */
+function formatImageForGemini(image: ImageAttachment): Record<string, unknown> {
+  return {
+    inlineData: {
+      mimeType: image.mediaType,
+      data: image.data,
+    },
+  };
+}
+
+/**
+ * 将 AIMessage 转换为 Gemini API 格式
+ * 支持多模态消息（文本 + 图片）
+ */
+function formatMessageForGemini(msg: AIMessage): Record<string, unknown> {
+  const role = msg.role === 'assistant' ? 'model' : 'user';
+  const parts: Record<string, unknown>[] = [];
+
+  // 🖼️ 检查是否有图片附件 - 多模态消息
+  if (msg.images && msg.images.length > 0) {
+    // Gemini 要求图片放在文本前面
+    for (const image of msg.images) {
+      parts.push(formatImageForGemini(image));
+    }
+  }
+  
+  // 添加文本部分
+  if (msg.content) {
+    parts.push({ text: msg.content });
+  }
+  
+  return { role, parts };
+}
 
 export class GeminiProvider implements AIProvider {
   name = 'gemini' as const;
@@ -9,16 +45,17 @@ export class GeminiProvider implements AIProvider {
   }
 
   async chat(messages: AIMessage[], onChunk: (chunk: string) => void): Promise<string> {
-    const model = this.config.model || 'gemini-pro';
+    // 🖼️ 检查是否包含图片，如果有则使用 vision 模型
+    const hasImages = messages.some(m => m.images && m.images.length > 0);
+    const model = hasImages 
+      ? (this.config.model?.includes('vision') ? this.config.model : 'gemini-1.5-flash')
+      : (this.config.model || 'gemini-pro');
     const apiKey = this.config.apiKey;
 
-    // Convert messages to Gemini format
+    // Convert messages to Gemini format (支持多模态)
     const contents = messages
       .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
+      .map(formatMessageForGemini);
 
     // Add system message as first user message if exists
     const systemMessage = messages.find(m => m.role === 'system');
@@ -87,7 +124,11 @@ export class GeminiProvider implements AIProvider {
   }
 
   async chatWithTools(messages: AIMessage[], tools: AITool[]): Promise<AIToolResponse> {
-    const model = this.config.model || 'gemini-pro';
+    // 🖼️ 检查是否包含图片，如果有则使用 vision 模型
+    const hasImages = messages.some(m => m.images && m.images.length > 0);
+    const model = hasImages 
+      ? (this.config.model?.includes('vision') ? this.config.model : 'gemini-1.5-flash')
+      : (this.config.model || 'gemini-pro');
     const apiKey = this.config.apiKey;
 
     // 转换 tools 为 Gemini 格式 (Function Declarations)
@@ -97,13 +138,10 @@ export class GeminiProvider implements AIProvider {
       parameters: t.parameters
     }));
 
-    // 转换消息为 Gemini 格式
+    // 转换消息为 Gemini 格式 (支持多模态)
     const contents = messages
       .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
+      .map(formatMessageForGemini);
 
     // 添加系统消息作为第一条用户消息
     const systemMessage = messages.find(m => m.role === 'system');

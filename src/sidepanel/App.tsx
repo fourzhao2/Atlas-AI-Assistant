@@ -15,7 +15,7 @@ import { ChatInput } from './components/ChatInput';
 import { Sidebar } from './components/Sidebar';
 import { ReActPanel } from './components/ReActPanel';
 import { PlanPanel } from './components/PlanPanel';
-import type { AIMessage, PageContent, ShortTermMemoryState, ConversationMode } from '@/types';
+import type { AIMessage, PageContent, ShortTermMemoryState, ConversationMode, ImageAttachment } from '@/types';
 
 export const App = () => {
   const {
@@ -257,11 +257,16 @@ export const App = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingMessage]);
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, images?: ImageAttachment[]) => {
     // 🔒 防止重复提交
     if (isSending) {
       console.warn('[Chat] ⚠️ 消息正在发送中，请稍候...');
       return;
+    }
+
+    // 🖼️ 多模态日志
+    if (images && images.length > 0) {
+      console.log('[Chat] 🖼️ 发送多模态消息，包含图片:', images.length);
     }
 
     // 📋 如果是 Plan 模式，使用 Plan Agent 处理
@@ -269,11 +274,12 @@ export const App = () => {
       console.log('[Chat] 📋 使用 Plan 模式处理:', content);
       setIsSending(true);
       
-      // 添加用户消息
+      // 添加用户消息（包含图片）
       const userMessage: AIMessage = {
         role: 'user',
         content,
         timestamp: Date.now(),
+        images, // 🖼️ 添加图片
       };
       addMessage(userMessage);
       
@@ -341,11 +347,12 @@ export const App = () => {
       return;
     }
 
-    // Add user message
+    // Add user message（包含图片）
     const userMessage: AIMessage = {
       role: 'user',
       content,
       timestamp: Date.now(),
+      images, // 🖼️ 添加图片附件
     };
 
     addMessage(userMessage);

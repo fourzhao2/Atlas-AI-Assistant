@@ -1,4 +1,50 @@
-import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse } from '@/types';
+import type { AIProvider, AIMessage, AIProviderConfig, AITool, AIToolResponse, ImageAttachment } from '@/types';
+
+/**
+ * 将图片附件转换为 Anthropic Claude Vision 格式
+ */
+function formatImageForAnthropic(image: ImageAttachment): Record<string, unknown> {
+  return {
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: image.mediaType,
+      data: image.data,
+    },
+  };
+}
+
+/**
+ * 将 AIMessage 转换为 Anthropic API 格式
+ * 支持多模态消息（文本 + 图片）
+ */
+function formatMessageForAnthropic(msg: AIMessage): Record<string, unknown> {
+  const role = msg.role === 'assistant' ? 'assistant' : 'user';
+
+  // 🖼️ 检查是否有图片附件 - 多模态消息
+  if (msg.images && msg.images.length > 0) {
+    // 多模态格式：content 是数组
+    const contentParts: Record<string, unknown>[] = [];
+    
+    // Claude 要求图片放在文本前面
+    for (const image of msg.images) {
+      contentParts.push(formatImageForAnthropic(image));
+    }
+    
+    // 添加文本部分（如果有）
+    if (msg.content) {
+      contentParts.push({
+        type: 'text',
+        text: msg.content,
+      });
+    }
+    
+    return { role, content: contentParts };
+  }
+  
+  // 普通文本消息
+  return { role, content: msg.content };
+}
 
 export class AnthropicProvider implements AIProvider {
   name = 'anthropic' as const;
@@ -24,10 +70,7 @@ export class AnthropicProvider implements AIProvider {
         model: this.config.model || 'claude-3-5-sonnet-20241022',
         max_tokens: 4096,
         system: systemMessages.map(m => m.content).join('\n') || undefined,
-        messages: conversationMessages.map(m => ({
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content
-        })),
+        messages: conversationMessages.map(formatMessageForAnthropic),
         stream: true,
       }),
     });
@@ -99,10 +142,7 @@ export class AnthropicProvider implements AIProvider {
         model: this.config.model || 'claude-3-5-sonnet-20241022',
         max_tokens: 4096,
         system: systemMessages.map(m => m.content).join('\n') || undefined,
-        messages: conversationMessages.map(m => ({
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content
-        })),
+        messages: conversationMessages.map(formatMessageForAnthropic),
         tools: anthropicTools,
       }),
     });

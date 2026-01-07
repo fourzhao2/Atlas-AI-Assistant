@@ -4,6 +4,54 @@ export type AIProviderType = 'openai' | 'anthropic' | 'gemini';
 // 消息角色类型 - 支持 tool role
 export type AIMessageRole = 'user' | 'assistant' | 'system' | 'tool';
 
+// ========================================
+// 多模态消息类型定义
+// ========================================
+
+/**
+ * 支持的图片 MIME 类型
+ */
+export type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
+/**
+ * 图片内容块 - 用于多模态消息
+ */
+export interface ImageContent {
+  type: 'image';
+  /** Base64 编码的图片数据（不含 data:xxx;base64, 前缀） */
+  data: string;
+  /** 图片的 MIME 类型 */
+  mediaType: ImageMediaType;
+  /** 图片详细程度：low 节省 token，high 更精确，auto 自动 */
+  detail?: 'low' | 'high' | 'auto';
+}
+
+/**
+ * 文本内容块
+ */
+export interface TextContent {
+  type: 'text';
+  text: string;
+}
+
+/**
+ * 消息内容类型 - 可以是纯文本或多模态内容数组
+ */
+export type MessageContent = string | Array<TextContent | ImageContent>;
+
+/**
+ * 图片附件信息（用于 UI 显示）
+ */
+export interface ImageAttachment {
+  id: string;
+  data: string;           // Base64 数据
+  mediaType: ImageMediaType;
+  name?: string;          // 文件名
+  size?: number;          // 文件大小（字节）
+  width?: number;         // 图片宽度
+  height?: number;        // 图片高度
+}
+
 export interface AIMessage {
   role: AIMessageRole;
   content: string;
@@ -11,6 +59,8 @@ export interface AIMessage {
   // Tool 相关字段
   tool_call_id?: string;      // tool role 消息需要关联的 tool_call id
   name?: string;              // tool role 消息的工具名称
+  // 🖼️ 多模态支持
+  images?: ImageAttachment[]; // 附带的图片
 }
 
 // Assistant 消息可能包含 tool_calls
