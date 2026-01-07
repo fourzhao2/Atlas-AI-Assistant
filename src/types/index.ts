@@ -153,6 +153,29 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   pageUrl?: string;
+  // 短期记忆相关
+  summary?: string; // 历史对话摘要
+  summaryTokens?: number; // 摘要的 token 数
+}
+
+// Short-term Memory Types (短期记忆类型)
+export interface ShortTermMemoryConfig {
+  maxTokens: number; // 最大 token 限制 (默认 4000)
+  maxRecentMessages: number; // 保留的最近消息数量 (默认 10)
+  summaryMaxTokens: number; // 摘要最大 token 数 (默认 500)
+  enableSummarization: boolean; // 是否启用摘要压缩
+}
+
+export interface ShortTermMemoryState {
+  summary: string | null; // 历史对话摘要
+  recentMessages: AIMessage[]; // 最近的消息（保留原文）
+  totalTokens: number; // 当前总 token 数
+  wasSummarized: boolean; // 是否进行了摘要压缩
+}
+
+export interface ProcessedMessages {
+  messages: AIMessage[]; // 处理后的消息数组（可直接发送给 AI）
+  state: ShortTermMemoryState; // 短期记忆状态
 }
 
 // Storage Types

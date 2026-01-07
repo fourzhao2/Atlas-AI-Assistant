@@ -4,6 +4,7 @@ import { storage } from '@/services/storage';
 import { aiService } from '@/services/ai-service';
 import { memoryService } from '@/services/memory';
 import { conversationService } from '@/services/conversation';
+import { shortTermMemory } from '@/services/short-term-memory';
 import { agentTools } from '@/services/agent-tools';
 import { getPageContent } from '@/utils/messaging';
 import { measurePerf } from '@/utils/performance';
@@ -13,7 +14,7 @@ import { ChatInput } from './components/ChatInput';
 import { QuickActions } from './components/QuickActions';
 import { Sidebar } from './components/Sidebar';
 import { ReActPanel } from './components/ReActPanel';
-import type { AIMessage, PageContent } from '@/types';
+import type { AIMessage, PageContent, ShortTermMemoryState } from '@/types';
 
 export const App = () => {
   const {
@@ -39,6 +40,10 @@ export const App = () => {
   const [streamingMessage, setStreamingMessage] = useState('');
   const [isSending, setIsSending] = useState(false); // 防止重复提交
   const currentRequestRef = useRef<AbortController | null>(null); // 用于取消请求
+  
+  // 短期记忆状态
+  const [memoryState, setMemoryState] = useState<ShortTermMemoryState | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<{ usage: number; remaining: number } | null>(null);
 
   // 🔄 使用 ReAct Agent Hook
   const agent = useAgent({
@@ -344,9 +349,32 @@ export const App = () => {
         console.log('[Chat] 已更新页面内容');
       }
 
-      // Prepare messages with memory
+      // Prepare messages with memory (短期记忆 + 长期记忆)
       let messagesToSend = [...messages, userMessage];
 
+      // Step 1: 应用短期记忆管理 - Token 限制和摘要压缩
+      console.log('[Chat] 🧠 应用短期记忆管理...');
+      const { processedMessages, state: shortTermState } = await conversationService.processMessagesWithMemory(
+        currentConversationId,
+        messagesToSend
+      );
+      
+      messagesToSend = processedMessages;
+      setMemoryState(shortTermState);
+      
+      // 更新 token 使用统计
+      const stats = shortTermMemory.getTokenStats(messagesToSend);
+      setTokenUsage({ usage: stats.usage, remaining: stats.remaining });
+      
+      console.log('[Chat] 短期记忆状态:', {
+        wasSummarized: shortTermState.wasSummarized,
+        hasSummary: !!shortTermState.summary,
+        recentMessagesCount: shortTermState.recentMessages.length,
+        totalTokens: shortTermState.totalTokens,
+        tokenUsage: `${stats.usage}%`
+      });
+
+      // Step 2: 应用长期记忆 - 检索相关记忆
       if (preferences.memoryEnabled) {
         messagesToSend = await memoryService.enhanceMessageWithMemory(messagesToSend);
       }
@@ -712,6 +740,15 @@ export const App = () => {
     setIsSending(false);
     setStreamingMessage('');
 
+    // 🧠 切换前：从当前对话提取长期记忆
+    if (currentConversationId && currentConversationId !== id && preferences.memoryEnabled) {
+      console.log('[Chat] 🧠 提取当前对话的长期记忆...');
+      // 异步提取，不阻塞切换
+      conversationService.extractLongTermMemories(currentConversationId).catch(err => {
+        console.error('[Chat] 提取长期记忆失败:', err);
+      });
+    }
+
     await conversationService.switchConversation(id);
     setCurrentConversationId(id);
 
@@ -719,6 +756,16 @@ export const App = () => {
     if (conv) {
       setMessages(conv.messages);
       console.log('[Chat] 切换到对话:', id, '消息数:', conv.messages.length);
+      
+      // 更新 token 使用统计
+      const stats = shortTermMemory.getTokenStats(conv.messages, conv.summary);
+      setTokenUsage({ usage: stats.usage, remaining: stats.remaining });
+      setMemoryState(conv.summary ? {
+        summary: conv.summary,
+        recentMessages: conv.messages,
+        totalTokens: stats.totalTokens,
+        wasSummarized: false
+      } : null);
     }
 
     setSidebarOpen(false);
@@ -825,11 +872,36 @@ export const App = () => {
               Atlas AI Assistant
             </h1>
           </div>
-          {currentPage && (
-            <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
-              {currentPage.title}
-            </div>
-          )}
+          {/* Token 使用情况 + 页面标题 */}
+          <div className="flex items-center gap-3">
+            {tokenUsage && (
+              <div className="flex items-center gap-1.5" title={`剩余 ${tokenUsage.remaining} tokens`}>
+                <div className="w-16 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-300 ${
+                      tokenUsage.usage > 80 ? 'bg-red-500' : 
+                      tokenUsage.usage > 50 ? 'bg-yellow-500' : 'bg-green-500'
+                    }`}
+                    style={{ width: `${Math.min(100, tokenUsage.usage)}%` }}
+                  />
+                </div>
+                <span className={`text-[10px] font-medium ${
+                  tokenUsage.usage > 80 ? 'text-red-500' : 
+                  tokenUsage.usage > 50 ? 'text-yellow-500' : 'text-gray-500 dark:text-gray-400'
+                }`}>
+                  {tokenUsage.usage}%
+                </span>
+                {memoryState?.summary && (
+                  <span className="text-[10px] text-blue-500" title="对话已压缩">📝</span>
+                )}
+              </div>
+            )}
+            {currentPage && (
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">
+                {currentPage.title}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Quick Actions */}

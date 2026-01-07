@@ -1,5 +1,7 @@
-import type { Conversation, AIMessage } from '@/types';
+import type { Conversation, AIMessage, ShortTermMemoryState } from '@/types';
 import { storage } from './storage';
+import { shortTermMemory } from './short-term-memory';
+import { memoryService } from './memory';
 
 class ConversationService {
   async createConversation(title?: string, pageUrl?: string): Promise<Conversation> {
@@ -70,6 +72,74 @@ class ConversationService {
     if (conversation && conversation.title === '新对话' && conversation.messages.length > 0) {
       const title = await this.generateTitle(conversation);
       await this.updateTitle(conversationId, title);
+    }
+  }
+
+  /**
+   * 处理消息 - 应用短期记忆管理
+   * 当消息过多时，自动生成摘要并压缩
+   */
+  async processMessagesWithMemory(
+    conversationId: string,
+    messages: AIMessage[]
+  ): Promise<{ processedMessages: AIMessage[]; state: ShortTermMemoryState }> {
+    const conversation = await storage.getConversation(conversationId);
+    const existingSummary = conversation?.summary;
+
+    console.log('[ConversationService] 处理短期记忆, 对话ID:', conversationId);
+    console.log('[ConversationService] 现有摘要:', existingSummary ? '有' : '无');
+
+    // 使用短期记忆服务处理消息
+    const result = await shortTermMemory.processMessages(messages, existingSummary);
+
+    // 如果生成了新摘要，保存到对话中
+    if (result.state.wasSummarized && result.state.summary) {
+      console.log('[ConversationService] 保存新摘要到对话');
+      await storage.updateConversation(conversationId, {
+        summary: result.state.summary,
+        summaryTokens: shortTermMemory.getTokenStats([], result.state.summary).summaryTokens
+      });
+    }
+
+    return {
+      processedMessages: result.messages,
+      state: result.state
+    };
+  }
+
+  /**
+   * 获取对话的 token 统计信息
+   */
+  async getTokenStats(conversationId: string): Promise<{
+    messagesTokens: number;
+    summaryTokens: number;
+    totalTokens: number;
+    remaining: number;
+    usage: number;
+  } | null> {
+    const conversation = await storage.getConversation(conversationId);
+    if (!conversation) return null;
+
+    return shortTermMemory.getTokenStats(conversation.messages, conversation.summary);
+  }
+
+  /**
+   * 对话结束时提取长期记忆
+   */
+  async extractLongTermMemories(conversationId: string): Promise<void> {
+    const conversation = await storage.getConversation(conversationId);
+    if (!conversation || conversation.messages.length < 4) {
+      // 对话太短，不提取记忆
+      return;
+    }
+
+    console.log('[ConversationService] 提取长期记忆, 消息数:', conversation.messages.length);
+
+    try {
+      const memories = await memoryService.extractAndSaveMemories(conversation.messages);
+      console.log('[ConversationService] 提取到记忆数量:', memories.length);
+    } catch (error) {
+      console.error('[ConversationService] 提取长期记忆失败:', error);
     }
   }
 

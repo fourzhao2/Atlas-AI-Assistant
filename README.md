@@ -1,22 +1,41 @@
-# Atlas Browser Extension
+# Atlas AI Assistant
 
-一个类似 OpenAI Atlas 的 AI 驱动浏览器扩展，支持多个 AI 提供商、网页总结、智能自动化等功能。
+🤖 AI驱动的智能浏览器扩展，为你的浏览体验注入AI能力。支持多AI服务商（OpenAI、Claude、Gemini），提供网页总结、智能对话、自动化操作和记忆系统功能。
+
+> An AI-powered browser extension for intelligent web browsing. Features multi-provider AI support, webpage summarization, smart automation, and memory system.
 
 ![Atlas Extension](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Chrome](https://img.shields.io/badge/Chrome-Compatible-brightgreen)
 ![Edge](https://img.shields.io/badge/Edge-Compatible-brightgreen)
 
-## ✨ 功能特性
+## ✅ 已完成功能
 
-- 🤖 **多 AI 提供商支持**: OpenAI GPT-4、Anthropic Claude、Google Gemini
-- 💬 **侧边栏 AI 助手**: 与 AI 实时对话，获取网页内容帮助
-- 📝 **网页内容总结**: 快速提取和总结网页核心内容
-- 🎯 **智能操作代理**: AI 驱动的网页自动化（表单填写、点击等）
-- 🧠 **记忆系统**: 记住用户偏好和对话历史
-- 📊 **历史记录分析**: 分析浏览习惯，提供个性化建议
-- 🎨 **现代化 UI**: 支持深色/浅色主题，流畅动画
-- 🔒 **隐私优先**: 所有数据本地存储，不上传到服务器
+### 核心功能
+- 🤖 **多 AI 提供商支持** - OpenAI GPT-4、Anthropic Claude、Google Gemini 无缝切换
+- 💬 **侧边栏 AI 助手** - 与 AI 实时对话，支持流式响应和 Markdown 渲染
+- 📝 **网页内容总结** - 一键提取和总结网页核心内容，支持缓存避免重复请求
+- 🎯 **智能操作代理** - AI 驱动的网页自动化（表单填写、点击、滚动等）
+- 🧠 **记忆系统** - 记住用户偏好和对话历史，提供上下文感知对话
+- 📊 **历史记录分析** - 分析浏览习惯，AI 生成个性化洞察和建议
+
+### 用户体验
+- 🎨 **现代化 UI** - 支持深色/浅色主题切换，流畅动画效果
+- ⚡ **快捷操作** - 右键菜单快速调用，快捷按钮一键总结/问答
+- 🔒 **隐私优先** - 所有数据本地存储，API Key 加密保存
+
+## 🚧 开发中 / 未来计划
+
+| 功能 | 状态 | 描述 |
+|------|------|------|
+| 🌐 **网页翻译** | 计划中 | 一键翻译整个网页或选中文本，支持多语言 |
+| 🎤 **语音输入** | 计划中 | 语音转文字，解放双手 |
+| 🖼️ **图片分析** | 计划中 | 支持图片内容理解和描述 |
+| 📤 **导出功能** | 计划中 | 导出对话历史、总结内容为多种格式 |
+| ⌨️ **快捷键配置** | 计划中 | 自定义快捷键，提升效率 |
+| 🔗 **跨设备同步** | 计划中 | 通过云端同步对话和设置 |
+| 🦊 **Firefox 支持** | 计划中 | 适配 Firefox 浏览器 |
+| 📱 **移动端优化** | 计划中 | 优化移动端浏览器体验 |
 
 ## 🚀 快速开始
 
@@ -142,12 +161,20 @@ npm run type-check
 ### v1.0.0 (2025-10-30)
 
 - ✨ 初始版本发布
-- ✅ 多 AI 提供商支持
-- ✅ 侧边栏聊天界面
-- ✅ 网页内容总结
-- ✅ 记忆系统
-- ✅ 历史分析
+- ✅ 多 AI 提供商支持（OpenAI、Claude、Gemini）
+- ✅ 侧边栏聊天界面，支持流式响应
+- ✅ 网页内容总结与缓存
+- ✅ 记忆系统与上下文感知
+- ✅ 浏览历史分析与洞察
 - ✅ 代理模式（实验性）
+- ✅ 深色/浅色主题
+
+### 计划中
+
+- 🌐 网页翻译功能
+- 🎤 语音输入支持
+- 🖼️ 图片分析能力
+- 📤 数据导出功能
 
 ## ⚠️ 注意事项
 
